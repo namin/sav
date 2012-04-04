@@ -1,0 +1,4 @@
+<plugin>
+  <name>sav</name>
+  <classname>net.namin.sav.SavPlugin</classname>
+</plugin>
