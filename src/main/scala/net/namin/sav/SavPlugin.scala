@@ -5,12 +5,11 @@ import nsc.Global
 import nsc.Phase
 import nsc.plugins.Plugin
 import nsc.plugins.PluginComponent
-
 import scala.collection.mutable.ListBuffer
-
 import lazabs.ast.ASTree._
 import lazabs.cfg._
 import lazabs.utils.Manip._
+import lazabs.digraph.Vertex
 
 class SavPlugin(val global: Global) extends Plugin {
   import global._
@@ -62,6 +61,7 @@ trait Sav extends PluginComponent {
     }
   }
   class DefDefAnalyzer extends Traverser {
+    var labels = Map[Name,Vertex]()
     val cfg = new CFG()
     var next = cfg.newVertex
     cfg.start = next
@@ -84,6 +84,19 @@ trait Sav extends PluginComponent {
       cfg += (from, Assume(simplify(Not(e))), cfg.error)
     }
 
+    def addAssign(v: String, rhs: Expression) = {
+      addEdge(lazabs.cfg.Assign(Variable(v), rhs))
+    }
+
+    def addLabel(n: Name) = {
+      labels += (n -> next)
+    }
+
+    def jumpTo(v: Vertex) = {
+      cfg += (next, Assume(BoolConst(true)), v)
+      next = v
+    }
+
     override def traverse(t: Tree) { t match {
         case DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
           println("def " + name)
@@ -94,11 +107,31 @@ trait Sav extends PluginComponent {
         case ValDef(mods, name, tpt, rhs)=>
           val v = name.decode
           cfg.variables += v
-          addEdge(lazabs.cfg.Assign(Variable(v), expr(rhs)))
+          addAssign(v, expr(rhs))
+        case LabelDef(name, List(), rhs) =>
+          addLabel(name)
+          traverse(rhs)
+        case If(cond, thenp, elsep) =>
+          val from = next
+          val conde = expr(cond)
+          addEdge(Assume(conde))
+          traverse(thenp)
+          val end = next
+          next = from
+          addEdge(Assume(simplify(Not(conde))))
+          traverse(elsep)
+          jumpTo(end)
+        case Assign(Ident(name), Apply(Select(_, fun), List())) if fun.decode == "havoc" =>
+          addEdge(Havoc(Variable(name.decode)))
+        case Assign(Ident(name), rhs) =>
+          addAssign(name.decode, expr(rhs))
         case Apply(Select(_, fun), List(arg)) if fun.decode == "assume" =>
           addEdge(Assume(expr(arg)))
         case Apply(Select(_, fun), List(arg)) if fun.decode == "assert" =>
           addAssert(expr(arg))
+        case Apply(Ident(name), List()) if labels.contains(name) =>
+          jumpTo(labels(name))
+        case Literal(Constant(())) => ()
         case _ => println("missing case: " + t.getClass + ":" + t)
       }
     }
