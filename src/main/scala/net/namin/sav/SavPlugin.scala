@@ -128,6 +128,16 @@ trait Sav extends PluginComponent {
       next = v
     }
 
+    private def considerValDef(t: ValDef) = {
+      if (t.tpt.toString == "Int") {
+        cfg.variables += t.name.decode
+        true
+      } else {
+        println("ignoring variable " + t.name + " of type " + t.tpt)
+        false
+      }
+    }
+
     def build(t: Tree) = {
       traverse(t)
       if (ok) Some(cfg) else None
@@ -136,14 +146,11 @@ trait Sav extends PluginComponent {
     override def traverse(t: Tree) { t match {
         case DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
           println("def " + name)
-          for (vparams <- vparamss)
-            cfg.variables ++= vparams.map(_.name.decode)
+          for (vparams <- vparamss; v <- vparams) considerValDef(v)
           traverse(rhs)
         case Block(stats, expr) => super.traverse(t)
-        case ValDef(mods, name, tpt, rhs)=>
-          val v = name.decode
-          cfg.variables += v
-          addAssign(v, expr(rhs))
+        case v @ ValDef(mods, name, tpt, rhs)=>
+          if (considerValDef(v)) addAssign(name.decode, expr(rhs))
         case LabelDef(name, List(), rhs @ If(cond, thenp, Literal(Constant(())))) =>
           addWhileLabel(name)
           val conde = expr(cond)
@@ -175,16 +182,18 @@ trait Sav extends PluginComponent {
           case None => addEdge(Havoc(Variable(name.decode)))
           case Some(e) => addAssign(name.decode, e)
         }
+        case Assign(Ident(name), rhs) =>
+          // assignment to unconsidered variable
         case Apply(Select(_, fun), List(arg)) if fun.decode == "assume" =>
           addEdge(Assume(expr(arg)))
         case Apply(Select(_, fun), List(arg)) if fun.decode == "assert" =>
           addAssert(expr(arg))
+        case Apply(Select(_, fun), List(arg)) if fun.decode.endsWith("_=")=>
+          // complex assignment -- must be (indirectly) to unconsidered variable
         case Apply(Ident(name), List()) if labels.contains(name) =>
           jumpTo(labels(name)._1)
           next = labels(name)._2
         case Literal(Constant(())) => ()
-        case Apply(Select(_, fun), List(arg)) if fun.decode.endsWith("_=")=>
-          println("ignoring complex assignment " + t)
         case _ =>
           println("missing case: " + t.getClass + " " + t)
           ok = false
