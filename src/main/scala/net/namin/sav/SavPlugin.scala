@@ -78,9 +78,11 @@ trait Sav extends PluginComponent {
     }
   }
   class DefDefAnalyzer extends Traverser {
-    var labels = Map[Name,Vertex]()
+    var labels = Map[Name,(Vertex,Vertex)]()
     val cfg = new CFG()
     var next = cfg.newVertex
+    var nextLabel = cfg.error
+    var afterNextLabel = cfg.error
     cfg.start = next
     
     def newNext = {
@@ -99,6 +101,8 @@ trait Sav extends PluginComponent {
       cfg.asserts += (from -> e)
       cfg += (from, Assume(e), to)
       cfg += (from, Assume(simplify(Not(e))), cfg.error)
+      nextLabel = from
+      afterNextLabel = to
     }
 
     def addAssign(v: String, rhs: Expression) = {
@@ -106,7 +110,10 @@ trait Sav extends PluginComponent {
     }
 
     def addLabel(n: Name) = {
-      labels += (n -> next)
+      assert(nextLabel != cfg.error && afterNextLabel == next, "while loop must be preceded by assert!")
+      labels += (n -> (nextLabel, afterNextLabel))
+      nextLabel = cfg.error
+      afterNextLabel = cfg.error
     }
 
     def jumpTo(v: Vertex) = {
@@ -126,12 +133,11 @@ trait Sav extends PluginComponent {
           cfg.variables += v
           addAssign(v, expr(rhs))
         case LabelDef(name, List(), rhs @ If(cond, thenp, Literal(Constant(())))) =>
-          val from = next
           addLabel(name)
           val conde = expr(cond)
           addEdge(Assume(conde))
           traverse(thenp)
-          assert(from == next)
+          assert(labels(name)._2 == next)
           addEdge(Assume(simplify(Not(conde))))
         case If(cond, thenp, elsep) =>
           val from = next
@@ -152,7 +158,8 @@ trait Sav extends PluginComponent {
         case Apply(Select(_, fun), List(arg)) if fun.decode == "assert" =>
           addAssert(expr(arg))
         case Apply(Ident(name), List()) if labels.contains(name) =>
-          jumpTo(labels(name))
+          jumpTo(labels(name)._1)
+          next = labels(name)._2
         case _ => println("missing case: " + t.getClass + ":" + t)
       }
     }
