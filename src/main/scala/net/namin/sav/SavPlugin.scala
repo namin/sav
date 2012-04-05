@@ -6,6 +6,12 @@ import nsc.Phase
 import nsc.plugins.Plugin
 import nsc.plugins.PluginComponent
 
+import scala.collection.mutable.ListBuffer
+
+import lazabs.ast.ASTree._
+import lazabs.cfg._
+import lazabs.utils.Manip._
+
 class SavPlugin(val global: Global) extends Plugin {
   import global._
 
@@ -13,17 +19,119 @@ class SavPlugin(val global: Global) extends Plugin {
   val description = "synthesis, analysis, verification"
   val components = List[PluginComponent](Component)
   
-  private object Component extends PluginComponent {
+  private object Component extends PluginComponent with Sav {
     val global: SavPlugin.this.global.type = SavPlugin.this.global
-    val runsAfter = List[String]("refchecks");
+    override val runsAfter = List[String]("cleanup")
     val phaseName = SavPlugin.this.name
     def newPhase(_prev: Phase) = new SavPhase(_prev)    
     
     class SavPhase(prev: Phase) extends StdPhase(prev) {
       override def name = SavPlugin.this.name
-      def apply(unit: CompilationUnit) {
-        println("SAV: TODO")
+      def apply(unit: CompilationUnit) = go(unit)
+    }
+  }
+}
+
+trait Sav extends PluginComponent {
+  import global._
+
+  def go(unit: CompilationUnit) = {
+    println("SAV: GO!")
+
+    val traverser = new ForeachDefDefTraverser(analyzeDef)
+    traverser.traverse(unit.body)
+    
+    println("SAV: Done GO!")
+  }
+
+  class ForeachDefDefTraverser(f: DefDef => Unit) extends ForeachPartialTreeTraverser({case t : DefDef =>
+    f(t)
+    EmptyTree
+  })
+
+  def analyzeDef(t: DefDef) {
+    if (t.name.startsWith("test")) {
+      println("SAV: Analyzing " + t.name)
+      
+      val analyzer = new DefDefAnalyzer
+      analyzer.traverse(t)
+      
+      println("SAV: Done Analyzing " + t.name)
+    } else {
+      println("SAV: Skipping " + t.name)
+    }
+  }
+  class DefDefAnalyzer extends Traverser {
+    val cfg = new CFG()
+    cfg.start = cfg.newVertex
+    
+    def addEdge(label: CFGLabel) = {
+      val to = cfg.start
+      val from = cfg.newVertex
+      cfg.start = from
+      
+      cfg += (from, label, to)
+    }
+
+    def addAssert(e: Expression) = {
+      val to = cfg.start
+      val from = cfg.newVertex
+      cfg.start = from
+ 
+      cfg.asserts += (from -> e)
+      cfg += (from, Assume(e), to)
+      cfg += (from, Assume(simplify(Not(e))), cfg.error)
+    }
+
+    override def traverse(t: Tree) { t match {
+        case DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
+          println("def " + name)
+          for (vparams <- vparamss)
+            cfg.variables ++= vparams.map(_.name.decode)
+          traverse(rhs)
+        case Block(stats, expr) => super.traverse(t)
+        case ValDef(mods, name, tpt, rhs)=>
+          val v = name.decode
+          cfg.variables += v
+          addEdge(lazabs.cfg.Assign(Variable(v), expr(rhs)))
+        case Apply(Select(_, fun), List(arg)) if fun.decode == "assume" =>
+          addEdge(Assume(expr(arg)))
+        case Apply(Select(_, fun), List(arg)) if fun.decode == "assert" =>
+          addAssert(expr(arg))
+        case _ => println("missing case: " + t.getClass + ":" + t)
       }
+    }
+  }
+
+  val binaryOps = Map(
+    "||" -> DisjunctionOp(),
+    "&&" -> ConjunctionOp(),
+    "==" -> EqualityOp(),
+    "!=" -> InequalityOp(),
+    "<" ->  LessThanOp(),
+    "<=" -> LessThanEqualOp(),
+    ">" ->  GreaterThanOp(),
+    ">=" -> GreaterThanEqualOp(),
+    "+" ->  AdditionOp(),
+    "-" ->  SubtractionOp(),
+    "*" ->  MultiplicationOp(),
+    "/" ->  DivisionOp(),
+    "%" ->  ModuloOp()
+  )
+    
+  def expr(t: Tree) = simplify((new ExpressionBuilder).build(t))
+  class ExpressionBuilder {
+    def build(t: Tree): Expression = t match {
+      case Literal(Constant(value)) => value match {
+        case x : Int => NumericalConst(x)
+        case x : Boolean => BoolConst(x)
+      }
+      case Ident(name) => Variable(name.decode)
+      case Apply(Select(lhs, op), List(rhs)) =>
+        BinaryExpression(build(lhs), binaryOps(op.decode), build(rhs))
+      case _ =>
+        println("missing case in expression builder: " + t.getClass)
+        null
     }
   }
 }
