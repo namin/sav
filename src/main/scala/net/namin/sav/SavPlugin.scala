@@ -55,9 +55,9 @@ trait Sav extends PluginComponent {
     if (t.name.startsWith("test")) {
       println("SAV: Analyzing " + t.name)
       
-      val analyzer = new DefDefAnalyzer
-      analyzer.traverse(t)
-      val vcgs = VCG(analyzer.cfg) 
+      val cfgBuilder = new DefDefCFGBuilder
+      cfgBuilder.traverse(t)
+      val vcgs = VCG(cfgBuilder.cfg)
       var verified = true
       vcgs foreach { e => 
         println("VCG:") 
@@ -77,26 +77,27 @@ trait Sav extends PluginComponent {
       println("SAV: Skipping " + t.name)
     }
   }
-  class DefDefAnalyzer extends Traverser {
-    var labels = Map[Name,(Vertex,Vertex)]()
+  class DefDefCFGBuilder extends Traverser {
     val cfg = new CFG()
-    var next = cfg.newVertex
-    var nextLabel = cfg.error
-    var afterNextLabel = cfg.error
+
+    private var labels = Map[Name,(Vertex,Vertex)]()
+    private var next = cfg.newVertex
+    private var nextLabel = cfg.error
+    private var afterNextLabel = cfg.error
     cfg.start = next
     
-    def newNext = {
+    private def newNext = {
       val from = next
       next = cfg.newVertex
       (from, next)
     }
 
-    def addEdge(label: CFGLabel) = {
+    private def addEdge(label: CFGLabel) = {
       val (from, to) = newNext     
       cfg += (from, label, to)
     }
 
-    def addAssert(e: Expression) = {
+    private def addAssert(e: Expression) = {
       val (from, to) = newNext
       cfg.asserts += (from -> e)
       cfg += (from, Assume(e), to)
@@ -105,18 +106,18 @@ trait Sav extends PluginComponent {
       afterNextLabel = to
     }
 
-    def addAssign(v: String, rhs: Expression) = {
+    private def addAssign(v: String, rhs: Expression) = {
       addEdge(lazabs.cfg.Assign(Variable(v), rhs))
     }
 
-    def addLabel(n: Name) = {
+    private def addLabel(n: Name) = {
       assert(nextLabel != cfg.error && afterNextLabel == next, "while loop must be preceded by assert!")
       labels += (n -> (nextLabel, afterNextLabel))
       nextLabel = cfg.error
       afterNextLabel = cfg.error
     }
 
-    def jumpTo(v: Vertex) = {
+    private def jumpTo(v: Vertex) = {
       cfg += (next, Assume(BoolConst(true)), v)
       next = v
     }
