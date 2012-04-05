@@ -5,14 +5,14 @@ import nsc.Global
 import nsc.Phase
 import nsc.plugins.Plugin
 import nsc.plugins.PluginComponent
-import scala.collection.mutable.ListBuffer
+
 import lazabs.ast.ASTree._
 import lazabs.cfg._
-import lazabs.utils.Manip._
 import lazabs.digraph.Vertex
+import lazabs.prover.Prover
+import lazabs.utils.Manip._
 import lazabs.vcg.VCG
 import lazabs.viewer.ScalaPrinter
-import lazabs.prover.Prover
 
 class SavPlugin(val global: Global) extends Plugin {
   import global._
