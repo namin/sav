@@ -179,7 +179,7 @@ trait Sav extends PluginComponent {
           traverse(elsep)
           jumpTo(end)
         case Assign(Ident(name), rhs) if cfg.variables.contains(name.decode) => exprIfOk(rhs) match {
-          case None => addEdge(Havoc(Variable(name.decode)))
+          case None => println("havoc on " + t); addEdge(Havoc(Variable(name.decode)))
           case Some(e) => addAssign(name.decode, e)
         }
         case Assign(Ident(name), rhs) =>
@@ -232,6 +232,7 @@ trait Sav extends PluginComponent {
   }
 
   val unaryOps = Map(
+    "unary_-" -> MinusOp(),
     "unary_!" -> NotOp())
 
   val binaryOps = Map(
