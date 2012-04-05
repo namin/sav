@@ -125,9 +125,12 @@ trait Sav extends PluginComponent {
           val v = name.decode
           cfg.variables += v
           addAssign(v, expr(rhs))
-        case LabelDef(name, List(), rhs) =>
+        case LabelDef(name, List(), rhs @ If(cond, thenp, Literal(Constant(())))) =>
           addLabel(name)
-          traverse(rhs)
+          val conde = expr(cond)
+          addEdge(Assume(conde))
+          traverse(thenp)
+          addEdge(Assume(simplify(Not(conde))))
         case If(cond, thenp, elsep) =>
           val from = next
           val conde = expr(cond)
