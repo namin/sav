@@ -10,6 +10,9 @@ import lazabs.ast.ASTree._
 import lazabs.cfg._
 import lazabs.utils.Manip._
 import lazabs.digraph.Vertex
+import lazabs.vcg.VCG
+import lazabs.viewer.ScalaPrinter
+import lazabs.prover.Prover
 
 class SavPlugin(val global: Global) extends Plugin {
   import global._
@@ -54,6 +57,20 @@ trait Sav extends PluginComponent {
       
       val analyzer = new DefDefAnalyzer
       analyzer.traverse(t)
+      val vcgs = VCG(analyzer.cfg) 
+      var verified = true
+      vcgs foreach { e => 
+        println("VCG:") 
+        println(ScalaPrinter(e))
+        println("Validity:") 
+        Prover.isSatisfiable(Not(e)) match {
+          case Some(true) => {println("Invalid"); verified = false}
+          case Some(false) => println("Valid")
+          case None => {println("Unknown"); verified = false}
+        }
+      }
+      if (verified) println("Program verification successful!")
+      else println("Program verification failed")      
       
       println("SAV: Done Analyzing " + t.name)
     } else {
