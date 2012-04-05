@@ -160,6 +160,7 @@ trait Sav extends PluginComponent {
         case Apply(Ident(name), List()) if labels.contains(name) =>
           jumpTo(labels(name)._1)
           next = labels(name)._2
+        case Literal(Constant(())) => ()
         case _ => println("missing case: " + t.getClass + ":" + t)
       }
     }
