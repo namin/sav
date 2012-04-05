@@ -56,30 +56,32 @@ trait Sav extends PluginComponent {
       println("SAV: Analyzing " + t.name)
       
       val cfgBuilder = new DefDefCFGBuilder
-      cfgBuilder.traverse(t)
-      val vcgs = VCG(cfgBuilder.cfg)
-      var verified = true
-      vcgs foreach { e => 
-        println("VCG:") 
-        println(ScalaPrinter(e))
-        println("Validity:") 
-        Prover.isSatisfiable(Not(e)) match {
-          case Some(true) => {println("Invalid"); verified = false}
-          case Some(false) => println("Valid")
-          case None => {println("Unknown"); verified = false}
-        }
+      cfgBuilder.build(t) match {
+        case None => println("Error: Could not build CFG")
+        case Some(cfg) =>   
+	      val vcgs = VCG(cfg)
+	      var verified = true
+	      vcgs foreach { e => 
+	        println("VCG:") 
+	        println(ScalaPrinter(e))
+	        println("Validity:") 
+	        Prover.isSatisfiable(Not(e)) match {
+	          case Some(true) => {println("Invalid"); verified = false}
+	          case Some(false) => println("Valid")
+	          case None => {println("Unknown"); verified = false}
+	        }
+	      }
+	      if (verified) println("Program verification successful!")
+	      else println("Program verification failed")      
       }
-      if (verified) println("Program verification successful!")
-      else println("Program verification failed")      
-      
       println("SAV: Done Analyzing " + t.name)
     } else {
       println("SAV: Skipping " + t.name)
     }
   }
   class DefDefCFGBuilder extends Traverser {
-    val cfg = new CFG()
-
+    private val cfg = new CFG()
+    private var ok = true
     private var labels = Map[Name,(Vertex,Vertex)]()
     private var next = cfg.newVertex
     private var nextLabel = cfg.error
@@ -122,6 +124,11 @@ trait Sav extends PluginComponent {
       next = v
     }
 
+    def build(t: Tree) = {
+      traverse(t)
+      if (ok) Some(cfg) else None
+    }
+ 
     override def traverse(t: Tree) { t match {
         case DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
           println("def " + name)
@@ -162,7 +169,26 @@ trait Sav extends PluginComponent {
           jumpTo(labels(name)._1)
           next = labels(name)._2
         case Literal(Constant(())) => ()
-        case _ => println("missing case: " + t.getClass + ":" + t)
+        case _ =>
+          println("missing case: " + t.getClass + ":" + t)
+          ok = false
+      }
+    }
+        
+    def expr(t: Tree) = simplify((new ExpressionBuilder).build(t))
+    class ExpressionBuilder {
+      def build(t: Tree): Expression = t match {
+        case Literal(Constant(value)) => value match {
+          case x : Int => NumericalConst(x)
+          case x : Boolean => BoolConst(x)
+        }
+        case Ident(name) => Variable(name.decode)
+        case Apply(Select(lhs, op), List(rhs)) =>
+          BinaryExpression(build(lhs), binaryOps(op.decode), build(rhs))
+        case _ =>
+          println("missing case in expression builder: " + t.getClass)
+          ok = false
+          null
       }
     }
   }
@@ -182,20 +208,4 @@ trait Sav extends PluginComponent {
     "/" ->  DivisionOp(),
     "%" ->  ModuloOp()
   )
-    
-  def expr(t: Tree) = simplify((new ExpressionBuilder).build(t))
-  class ExpressionBuilder {
-    def build(t: Tree): Expression = t match {
-      case Literal(Constant(value)) => value match {
-        case x : Int => NumericalConst(x)
-        case x : Boolean => BoolConst(x)
-      }
-      case Ident(name) => Variable(name.decode)
-      case Apply(Select(lhs, op), List(rhs)) =>
-        BinaryExpression(build(lhs), binaryOps(op.decode), build(rhs))
-      case _ =>
-        println("missing case in expression builder: " + t.getClass)
-        null
-    }
-  }
 }
