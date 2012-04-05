@@ -63,21 +63,22 @@ trait Sav extends PluginComponent {
   }
   class DefDefAnalyzer extends Traverser {
     val cfg = new CFG()
-    cfg.start = cfg.newVertex
+    var next = cfg.newVertex
+    cfg.start = next
     
+    def newNext = {
+      val from = next
+      next = cfg.newVertex
+      (from, next)
+    }
+
     def addEdge(label: CFGLabel) = {
-      val to = cfg.start
-      val from = cfg.newVertex
-      cfg.start = from
-      
+      val (from, to) = newNext     
       cfg += (from, label, to)
     }
 
     def addAssert(e: Expression) = {
-      val to = cfg.start
-      val from = cfg.newVertex
-      cfg.start = from
- 
+      val (from, to) = newNext
       cfg.asserts += (from -> e)
       cfg += (from, Assume(e), to)
       cfg += (from, Assume(simplify(Not(e))), cfg.error)
