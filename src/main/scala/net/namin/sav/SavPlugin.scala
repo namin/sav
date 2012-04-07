@@ -40,48 +40,43 @@ trait Sav extends PluginComponent {
   def go(unit: CompilationUnit) = {
     println("SAV: GO!")
 
-    val traverser = new ForeachDefDefTraverser(analyzeDef)
+    val traverser = new ForeachVerifyDefTraverser(analyzeDef)
     traverser.traverse(unit.body)
     
     println("SAV: Done GO!")
   }
 
-  class ForeachDefDefTraverser(f: DefDef => Unit) extends ForeachPartialTreeTraverser({case t : DefDef =>
-    f(t)
-    EmptyTree
-  })
+  class ForeachVerifyDefTraverser(f: DefDef => Unit) extends ForeachPartialTreeTraverser(
+      {case t : DefDef if verifyDef(t) => f(t); EmptyTree})
 
   def verifyDef(t: DefDef) = t.symbol.hasAnnotation(definitions.getClass(
       "net.namin.sav.annotation.verify"))
 
   def analyzeDef(t: DefDef) {
-    if (verifyDef(t)) {
-      println("SAV: Analyzing " + t.name)
-      
-      val cfgBuilder = new DefDefCFGBuilder
-      cfgBuilder.build(t) match {
-        case None => println("Error: Could not build CFG")
-        case Some(cfg) =>   
-	      val vcgs = VCG(cfg)
-	      var verified = true
-	      vcgs foreach { e => 
-	        println("VCG:") 
-	        println(ScalaPrinter(e))
-	        println("Validity:") 
-	        Prover.isSatisfiable(Not(e)) match {
-	          case Some(true) => {println("Invalid"); verified = false}
-	          case Some(false) => println("Valid")
-	          case None => {println("Unknown"); verified = false}
-	        }
-	      }
-	      if (verified) println("Program verification successful!")
-	      else println("Program verification failed")      
-      }
-      println("SAV: Done Analyzing " + t.name)
-    } else {
-      println("SAV: Skipping " + t.name)
+    println("SAV: Analyzing " + t.name)
+
+    val cfgBuilder = new DefDefCFGBuilder
+    cfgBuilder.build(t) match {
+      case None => println("Error: Could not build CFG")
+      case Some(cfg) =>
+        val vcgs = VCG(cfg)
+        var verified = true
+        vcgs foreach { e =>
+          println("VCG:")
+          println(ScalaPrinter(e))
+          println("Validity:")
+          Prover.isSatisfiable(Not(e)) match {
+            case Some(true) => {println("Invalid"); verified = false}
+            case Some(false) => println("Valid")
+            case None => {println("Unknown"); verified = false}
+          }
+        }
+        if (verified) println("Program verification successful!")
+        else println("Program verification failed")
     }
+    println("SAV: Done Analyzing " + t.name)
   }
+
   class DefDefCFGBuilder extends Traverser {
     private val cfg = new CFG()
     private var ok = true
