@@ -1,4 +1,7 @@
+import net.namin.sav.annotation.verify
+
 object ex2 {
+  @verify
   def test(a: Int, b: Int, c: Int) {
     var isoscles: Int = 0
     var scalene: Int = 0

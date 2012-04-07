@@ -1,4 +1,7 @@
+import net.namin.sav.annotation.verify
+
 object ex3 {
+  @verify
   def test(length: Int) {
     assume(length > 0)
     var i: Int = 0

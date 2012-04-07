@@ -1,9 +1,12 @@
+import net.namin.sav.annotation.verify
+
 object ex4 {
   class Queue(var data: Int, var next: Option[Queue])
 
   def lock() = 1
   def unlock() = 0
 
+  @verify
   def test(queue: Queue) {
     var locked = 0
 

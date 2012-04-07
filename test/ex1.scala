@@ -1,7 +1,9 @@
+import net.namin.sav.annotation.verify
+
 object ex1 {
   val random = new scala.util.Random()
   def havoc = random.nextInt
-
+  @verify
   def test(b: Int) = {
     assume(b >= 0)
     var P1:Int = 0

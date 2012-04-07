@@ -51,8 +51,11 @@ trait Sav extends PluginComponent {
     EmptyTree
   })
 
+  def verifyDef(t: DefDef) = t.symbol.hasAnnotation(definitions.getClass(
+      "net.namin.sav.annotation.verify"))
+
   def analyzeDef(t: DefDef) {
-    if (t.name.startsWith("test")) {
+    if (verifyDef(t)) {
       println("SAV: Analyzing " + t.name)
       
       val cfgBuilder = new DefDefCFGBuilder
