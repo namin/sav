@@ -1,23 +1,35 @@
 import net.namin.sav.annotation.verify
+import net.namin.sav.lib._
 
 object ex4 {
   class Queue(var data: Int, var next: Option[Queue])
 
-  def lock() = 1
-  def unlock() = 0
+  @verify
+  def lock(l: Int) = {
+    precondition(l == 0)
+    val r = 1
+    postcondition(r == 1)
+    r
+  }
+
+  @verify
+  def unlock(l: Int) = {
+    precondition(l == 1)
+    val r = 0
+    postcondition(r == 0)
+    r
+  }
 
   @verify
   def test(queue: Queue) {
-    var locked = 0
+    var l = 0
 
     var oldi = 0
     var newi = 0
     var q = queue
 
     do {
-      assert(locked == 0)
-      locked = lock()
-      assume(locked == 1)
+      l = lock(l)
 
       oldi = newi
 
@@ -25,18 +37,15 @@ object ex4 {
         q = q.next.get
         q.data = newi
 
-        assert(locked == 1 && newi == oldi)
-        locked = unlock()
-        assume(locked == 0)
+        assert(newi == oldi)
+        l = unlock(l)
 
         newi += 1
       }
 
-      assert((locked == 0 && newi != oldi) || (locked == 1 && newi == oldi))
+      assert((l == 0 && newi != oldi) || (l == 1 && newi == oldi))
     } while (newi != oldi)
 
-    assert(locked == 1)
-    locked = unlock()
-    assume(locked == 0)
+    l = unlock(l)
   }
 }

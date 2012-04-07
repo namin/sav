@@ -5,7 +5,6 @@ import nsc.Global
 import nsc.Phase
 import nsc.plugins.Plugin
 import nsc.plugins.PluginComponent
-
 import lazabs.ast.ASTree._
 import lazabs.cfg._
 import lazabs.digraph.Vertex
@@ -13,6 +12,7 @@ import lazabs.prover.Prover
 import lazabs.utils.Manip._
 import lazabs.vcg.VCG
 import lazabs.viewer.ScalaPrinter
+import scala.collection.mutable.ListBuffer
 
 class SavPlugin(val global: Global) extends Plugin {
   import global._
@@ -40,8 +40,8 @@ trait Sav extends PluginComponent {
   def go(unit: CompilationUnit) = {
     println("SAV: GO!")
 
-    val traverser = new ForeachVerifyDefTraverser(analyzeDef)
-    traverser.traverse(unit.body)
+    val analyzer = new ForeachVerifyDefTraverser(analyzeDef)
+    analyzer.traverse(unit.body)
     
     println("SAV: Done GO!")
   }
@@ -52,6 +52,8 @@ trait Sav extends PluginComponent {
   def verifyDef(t: DefDef) = t.symbol.hasAnnotation(definitions.getClass(
       "net.namin.sav.annotation.verify"))
 
+  case class DefContract(intParams: List[String], precondition: Option[Expression], postcondition: Option[Expression=>Expression])
+  var verifiedDefs = Map[Name, DefContract]()
   def analyzeDef(t: DefDef) {
     println("SAV: Analyzing " + t.name)
 
@@ -84,6 +86,10 @@ trait Sav extends PluginComponent {
     private var next = cfg.newVertex
     private var lastAssertFrom = cfg.error
     private var lastAssertTo = cfg.error
+    private val intParams = ListBuffer[String]()
+    private var precondition : Option[Expression] = None
+    private var postcondition : Option[Expression] = None
+    private var result : Option[String] = None
     cfg.start = next
     
     private def newNext = {
@@ -98,12 +104,20 @@ trait Sav extends PluginComponent {
     }
 
     private def addAssert(e: Expression) = {
-      val (from, to) = newNext
-      cfg.asserts += (from -> e)
-      cfg += (from, Assume(e), to)
-      cfg += (from, Assume(simplify(Not(e))), cfg.error)
-      lastAssertFrom = from
-      lastAssertTo = to
+      val ((from, to), ce) = if (lastAssertTo == next) {
+      	val pe = cfg.asserts(lastAssertFrom)
+      	val ce = simplify(Conjunction(pe, e))
+      	((lastAssertFrom, lastAssertTo), ce)
+      } else {
+      	(newNext, e)
+      }
+      
+   	  cfg.asserts += (from -> ce)
+  	  cfg += (from, Assume(ce), to)
+  	  cfg += (from, Assume(simplify(Not(ce))), cfg.error)
+
+  	  lastAssertFrom = from
+  	  lastAssertTo = to
     }
 
     private def addAssign(v: String, rhs: Expression) = {
@@ -126,9 +140,10 @@ trait Sav extends PluginComponent {
       next = v
     }
 
-    private def considerValDef(t: ValDef) = {
+    private def considerValDef(t: ValDef, isParam: Boolean) = {
       if (t.tpt.toString == "Int") {
         cfg.variables += t.name.decode
+        intParams.append(t.name.decode)
         true
       } else {
         println("ignoring variable " + t.name + " of type " + t.tpt)
@@ -136,19 +151,47 @@ trait Sav extends PluginComponent {
       }
     }
 
-    def build(t: Tree) = {
+    def build(t: DefDef) = {
       traverse(t)
+      val intParamsList = intParams.toList
+      val intParamsSet = intParamsList.toSet
+      if (precondition.exists(e => !freeVars(e).subsetOf(intParamsSet))) {
+        println("precondition has free variables")
+      } else if (postcondition.exists(e => !freeVars(e).subsetOf(
+          intParamsSet union result.toSet))) {
+        println("postcondition has free variables")
+      } else {
+        verifiedDefs += (t.name ->
+            DefContract(intParamsList, precondition, result match {
+            	case None => postcondition.map(e => r => e)
+            	case Some(v) => postcondition.map(e => r => subst(e, Map(v -> r)))
+            }))
+      }
       if (ok) Some(cfg) else None
     }
  
     override def traverse(t: Tree) { t match {
         case DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
           println("def " + name)
-          for (vparams <- vparamss; v <- vparams) considerValDef(v)
-          traverse(rhs)
+          for (vparams <- vparamss; v <- vparams) considerValDef(v, true)
+          if (tpt.toString == "Int") {
+            rhs match {
+              case Block(stats, r) =>
+                traverseTrees(stats)
+                exprIfOk(r) match {
+                  case Some(Variable(v, None)) => result = Some(v)
+                  case _ => ()
+                }
+              case _ =>
+                ok = false
+                println("nothing to verify")
+            }
+          } else {
+            traverse(rhs)
+          }
         case Block(stats, expr) => super.traverse(t)
         case v @ ValDef(mods, name, tpt, rhs)=>
-          if (considerValDef(v)) addAssign(name.decode, expr(rhs))
+          if (considerValDef(v, false)) addAssign(name.decode, expr(rhs))
         case LabelDef(name, List(), rhs @ If(cond, thenp, Literal(Constant(())))) =>
           addWhileLabel(name)
           val conde = expr(cond)
@@ -177,11 +220,36 @@ trait Sav extends PluginComponent {
           traverse(elsep)
           jumpTo(end)
         case Assign(Ident(name), rhs) if cfg.variables.contains(name.decode) => exprIfOk(rhs) match {
-          case None => println("havoc on " + t); addEdge(Havoc(Variable(name.decode)))
+          case None =>
+            rhs match {
+              case Apply(Select(_, fun), args) if verifiedDefs.contains(fun.decode) =>
+                val DefContract(ips, precondition, postcondition) = verifiedDefs(fun.decode)
+                println("partial havoc with contract of " + fun.decode)
+                precondition.foreach(e => addAssert(subst(e, ips.zip(args.map(expr)).toMap)))
+                addEdge(Havoc(Variable(name.decode)))
+                postcondition.foreach(f => addEdge(Assume(f(Variable(name.decode)))))
+              case _ =>
+                println("havoc on " + t)
+                addEdge(Havoc(Variable(name.decode)))
+            }
           case Some(e) => addAssign(name.decode, e)
         }
         case Assign(Ident(name), rhs) =>
           // assignment to unconsidered variable
+        case Apply(Select(_, fun), List(arg)) if fun.decode == "precondition" =>
+          val e = expr(arg)
+          addEdge(Assume(e))
+          precondition = precondition match {
+            case None => Some(e)
+            case Some(pe) => Some(simplify(Conjunction(pe, e)))
+          }
+        case Apply(Select(_, fun), List(arg)) if fun.decode == "postcondition" =>
+          val e = expr(arg)
+          addAssert(e)
+          postcondition = postcondition match {
+            case None => Some(e)
+            case Some(pe) => Some(simplify(Conjunction(pe, e)))
+          }
         case Apply(Select(_, fun), List(arg)) if fun.decode == "assume" =>
           addEdge(Assume(expr(arg)))
         case Apply(Select(_, fun), List(arg)) if fun.decode == "assert" =>
