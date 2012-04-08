@@ -1,11 +1,13 @@
 import net.namin.sav.annotation.verify
+import net.namin.sav.lib._
 
 object ex5 {
   @verify
-  def test(a: Int) = {
+  def abs(a: Int) = {
     var b = 0
     if (a < 0) b = -a
     else b = a
-    assert(b >= 0)
+    postcondition(b >= 0)
+    b
   }
 }
