@@ -35,7 +35,9 @@ object ex7 {
       val old_savings_balance = old(savings.balance)
       val old_checking_balance = old(checking.balance)
 
+      assert(amount >= 0 && savings.balance >= amount && checking.balance >= 0 && savings.balance == old_savings_balance && checking.balance == old_checking_balance)
       savings.withdraw(amount)
+      assert(amount >= 0 && savings.balance >= 0 && checking.balance >= 0 && savings.balance == old_savings_balance - amount && checking.balance == old_checking_balance)
       checking.deposit(amount)
 
       postcondition(savings.balance + checking.balance == old_savings_balance + old_checking_balance && savings.balance >= 0 && checking.balance >= 0)

@@ -40,6 +40,9 @@ trait Sav extends PluginComponent {
   def go(unit: CompilationUnit) = {
     println("SAV: GO!")
 
+    val classCollector = new ForeachVerifyClassTraverser(collectClassDef)
+    classCollector.traverse(unit.body)
+
     val collector = new ForeachVerifyDefTraverser(collectDef)
     collector.traverse(unit.body)
 
@@ -49,13 +52,44 @@ trait Sav extends PluginComponent {
     println("SAV: Done GO!")
   }
 
-  class ForeachVerifyDefTraverser(f: DefDef => Unit) extends ForeachPartialTreeTraverser(
-      {case t : DefDef if verifyDef(t) => f(t); EmptyTree})
+  class ForeachVerifyClassTraverser(f: ClassDef => Unit) extends ForeachPartialTreeTraverser({
+    case t : ClassDef if hasVerifyAnnotation(t) => f(t); EmptyTree
+  })
 
-  def verifyDef(t: DefDef) = t.symbol.hasAnnotation(definitions.getClass(
+  var classContract : Option[ClassContract] = None
+  class ForeachVerifyDefTraverser(f: DefDef => Unit) extends ForeachPartialTreeTraverser({
+    case t : DefDef if hasVerifyAnnotation(t) =>
+      f(t)
+      EmptyTree
+    case t : ClassDef =>
+      classContract = verifiedClasses.get(t.symbol.name)
+      assert(classContract == None || hasVerifyAnnotation(t))
+      t
+  })
+
+  def hasVerifyAnnotation(t: Tree) = t.symbol.hasAnnotation(definitions.getClass(
       "net.namin.sav.annotation.verify"))
 
-  case class DefContract(intParams: List[String], precondition: Option[Expression], postcondition: Option[Expression=>Expression])
+  case class ClassContract(name: String, intVars: Set[String], vals: Set[(Name, String)])
+  var verifiedClasses = Map[Name, ClassContract]()
+  def collectClassDef(t: ClassDef) {
+    var intVars = Set[String]()
+    var vals = Set[(Name, String)]()
+    for (child <- t.impl.children) {
+      child match {
+        case ValDef(mods, name, tpt, rhs) =>
+          if (tpt.toString == "Int") {
+            intVars += name.decode.trim
+          } else if (!mods.isMutable) {
+            vals += ((tpt.symbol.name, name.decode.trim))
+          }
+        case _ => ()
+      }
+    }
+    verifiedClasses += (t.symbol.name -> ClassContract(t.symbol.name.decode, intVars, vals))
+  }
+
+  case class DefContract(intParams: List[String], aliases: Map[String, String], precondition: Option[Expression], postcondition: Option[Expression=>Expression])
   var verifiedDefs = Map[Name, DefContract]()
   def collectDef(t: DefDef) {
     val contractBuilder = new DefContractBuilder
@@ -96,6 +130,39 @@ trait Sav extends PluginComponent {
     protected val variables = mutable.Set[String]()
     protected var ok = true
 
+    protected def init() = {
+      classContract match {
+        case None => ()
+        case Some(c) => collectFields("this.", c).foreach(variables += _)
+      }
+    }
+    protected def collectFields(prefix: String, c: ClassContract): Set[String] = {
+      var res = Set[String]()
+      c.intVars.foreach(v => res += (prefix + v))
+      for ((vType, vName) <- c.vals) {
+        verifiedClasses.get(vType) match {
+          case None => ()
+          case Some(vClass) => res = res union collectFields(prefix + vName + ".", vClass)
+        }
+      }
+      res
+    }
+    protected def toFieldSelect(t: Tree): Option[String] =  t match {
+      case Apply(s @ Select(qualifier, name), List()) =>
+        toFieldSelect(qualifier) match {
+          case None => None
+          case Some(prefix) => Some(prefix + "." + name.decode)
+        }
+      case This(tpt) => Some("this")
+      case _ => None
+    }
+    private def isFieldSelect(t: Tree) = {
+      toFieldSelect(t) match {
+        case None => false
+        case Some(f) => variables.contains(f)
+      }
+    }
+
     protected def considerValDef(t: ValDef) = {
       if (t.tpt.toString == "Int") {
         variables += t.name.decode
@@ -129,6 +196,8 @@ trait Sav extends PluginComponent {
           UnaryExpression(unaryOps(op.decode), build(e))
         case Apply(Select(lhs, op), List(rhs)) if binaryOps.contains(op.decode) =>
           BinaryExpression(build(lhs), binaryOps(op.decode), build(rhs))
+        case Apply(Select(qualifier, name), List()) if isFieldSelect(t) =>
+          Variable(toFieldSelect(t).get)
         case _ =>
           if (signalError) println("missing case in expression builder: " + t.getClass + " " + t)
           ok = false
@@ -141,68 +210,79 @@ trait Sav extends PluginComponent {
     private val intParams = mutable.ListBuffer[String]()
     private var precondition : Option[Expression] = None
     private var postcondition : Option[Expression] = None
+    private var aliases = Map[String, String]()
     private var result : Option[String] = None
 
     def build(t: DefDef) = {
+      init()
+      val fields = variables.toSet
       ok = false
       traverse(t)
       val intParamsList = intParams.toList
       val intParamsSet = intParamsList.toSet
       if (!ok) None else {
-      	if (precondition.exists(e => !freeVars(e).subsetOf(intParamsSet))) {
-      		println("precondition has free variables")
-      		ok = false
-      		None
+      	if (precondition.exists(e => !freeVars(e).subsetOf(intParamsSet union fields))) {
+      	  println("precondition has free variables")
+      	  ok = false
+      	  None
+      	} else if (aliases.exists(i => !fields.contains(i._2))) {
+      	  println("aliases have free variables")
+      	  ok = false
+      	  None
       	} else if (postcondition.exists(e => !freeVars(e).subsetOf(
-      			intParamsSet union result.toSet))) {
-      		println("postcondition has free variables")
-      		ok = false
-      		None
+      	    intParamsSet union fields union result.toSet union aliases.keys.toSet))) {
+      	  println("postcondition has free variables")
+      	  ok = false
+      	  None
       	} else {
-      		verifiedDefs += (t.name ->
-            	DefContract(intParamsList, precondition, result match {
-            		case None => postcondition.map(e => r => e)
-            		case Some(v) => postcondition.map(e => r => subst(e, Map(v -> r)))
-            	}))
+      	  verifiedDefs += (t.name ->
+      	    DefContract(intParamsList, aliases, precondition, result match {
+      	      case None => postcondition.map(e => r => e)
+      	      case Some(v) => postcondition.map(e => r => subst(e, Map(v -> r)))
+            }))
           Some(verifiedDefs(t.name))
       	}
       }
     }
 
     override def traverse(t: Tree) { t match {
-	      case DefDef(mods, name, tparams, vparamss, tpt, rhs @ Block(stats, r)) =>
-	        ok = true
-	        println("def " + name)
-	        for (vparams <- vparamss; v <- vparams) {
-	          if (considerValDef(v)) {
-	            intParams.append(v.name.decode)
-	          }
-	        }
-	        if (tpt.toString == "Int") {
-	          r match {
-	            case Ident(name) =>
-	              val v = name.decode
-	              variables += v
-	              result = Some(v)
-	            case _ => ()
-	          }
-	          traverseTrees(stats)
-	        } else {
-	          traverse(rhs)
-	        }
-	      case Apply(Select(_, fun), List(arg)) if fun.decode == "precondition" =>
-	        val e = expr(arg)
-	        precondition = precondition match {
-	          case None => Some(e)
-	          case Some(pe) => Some(simplify(Conjunction(pe, e)))
-	        }
-	      case Apply(Select(_, fun), List(arg)) if fun.decode == "postcondition" =>
-	        val e = expr(arg)
-	        postcondition = postcondition match {
-	          case None => Some(e)
-	          case Some(pe) => Some(simplify(Conjunction(pe, e)))
-	        }
-	      case _ => ()
+      case DefDef(mods, name, tparams, vparamss, tpt, rhs @ Block(stats, r)) =>
+	    ok = true
+	    println("def " + name)
+	    for (vparams <- vparamss; v <- vparams) {
+	      if (considerValDef(v)) intParams.append(v.name.decode)
+	    }
+	    if (tpt.toString == "Int") {
+	      r match {
+	        case Ident(name) =>
+	          val v = name.decode
+	          variables += v
+	          result = Some(v)
+	        case _ => ()
+	      }
+	      traverseTrees(stats)
+	    } else {
+	      traverseTrees(stats)
+	      traverse(r)
+	    }
+        case v @ ValDef(mods, name, tpt, Apply(Select(_, fun), List(rhs))) if fun.decode == "old" && !mods.isMutable =>
+          if (considerValDef(v)) { expr(rhs) match {
+            case Variable(x, _) => variables += name.decode; aliases += (name.decode -> x)
+            case _ => println(name.decode + " is not a proper alias")
+          }}
+	    case Apply(Select(_, fun), List(arg)) if fun.decode == "precondition" =>
+	      val e = expr(arg)
+	      precondition = precondition match {
+	        case None => Some(e)
+	        case Some(pe) => Some(simplify(Conjunction(pe, e)))
+	      }
+	    case Apply(Select(_, fun), List(arg)) if fun.decode == "postcondition" =>
+	      val e = expr(arg)
+	      postcondition = postcondition match {
+	        case None => Some(e)
+	        case Some(pe) => Some(simplify(Conjunction(pe, e)))
+	      }
+	    case _ => ()
       }
     }
   }
@@ -264,7 +344,57 @@ trait Sav extends PluginComponent {
       next = v
     }
 
+    private def addVerifiedCall(t: Tree, result: Option[Variable], qualifier: Tree, fun: Name, args: List[Tree]) {
+      val DefContract(ips, aliases, precondition, postcondition) = verifiedDefs(fun.decode)
+      println("partial havoc with contract of " + fun.decode)
+      var fieldMap = Map[String, Expression]()
+      var aliasMap = Map[String, Expression]()
+      var todo = mutable.ListBuffer[(() => Unit)]()
+      verifiedClasses.get(qualifier.tpe.typeSymbol.name) match {
+        case None => assert(aliases.isEmpty)
+        case Some(c) => toFieldSelect(qualifier) match {
+          case None => println("verified method call on non-field qualifier"); ok = false
+          case Some(qualifier) =>
+            fieldMap = collectFields("this.", c).map(s => (s -> Variable(qualifier + s.substring("this".length)))).toMap
+            for ((from, to) <- aliases) {
+              val fromName = fun.decode + ".$." + from
+              variables += fromName
+              todo.append(() => {
+                addEdge(Havoc(Variable(fun.decode + ".$." + from)))
+                addAssign(fromName, Variable(qualifier + to.substring("this".length)))
+              })
+              aliasMap += (from -> Variable(fromName))
+            }
+        }
+      }
+      val argsMap = ips.zip(args.map(expr)).toMap
+      var m = fieldMap ++ argsMap
+      precondition.foreach(e => addAssert(subst(e, m)))
+      result.foreach(v => addEdge(Havoc(v)))
+      todo.foreach(f => f())
+      m = m ++ aliasMap
+      postcondition.foreach(f => addEdge(Assume(subst(f(result match {
+        case None => NumericalConst(0)
+        case Some(v) => v
+      }), m))))
+    }
+
+    private def calcAssign(t: Tree, v: String, rhs: Tree) {
+      exprIfOk(rhs) match {
+        case None =>
+          rhs match {
+            case Apply(Select(qualifier, fun), args) if verifiedDefs.contains(fun.decode) =>
+              addVerifiedCall(t, Some(Variable(v)), qualifier, fun, args)
+            case _ =>
+              println("havoc on " + t)
+              addEdge(Havoc(Variable(v)))
+          }
+        case Some(e) => addAssign(v, e)
+      }
+    }
+
     def build(t: DefDef) = {
+      init()
       traverse(t)
       if (ok) Some(cfg) else None
     }
@@ -280,7 +410,13 @@ trait Sav extends PluginComponent {
           }
         case Block(stats, expr) => super.traverse(t)
         case v @ ValDef(mods, name, tpt, rhs)=>
-          if (considerValDef(v)) addAssign(name.decode, expr(rhs))
+          if (considerValDef(v)) {
+            val res = rhs match {
+              case Apply(Select(_, fun), List(rhs)) if fun.decode == "old" => rhs
+              case _ => rhs
+            }
+            addAssign(name.decode, expr(res))
+          }
         case LabelDef(name, List(), rhs @ If(cond, thenp, Literal(Constant(())))) =>
           addWhileLabel(name)
           val conde = expr(cond)
@@ -308,21 +444,8 @@ trait Sav extends PluginComponent {
           conde.foreach(e => addEdge(Assume(simplify(Not(e)))))
           traverse(elsep)
           jumpTo(end)
-        case Assign(Ident(name), rhs) if variables.contains(name.decode) => exprIfOk(rhs) match {
-          case None =>
-            rhs match {
-              case Apply(Select(_, fun), args) if verifiedDefs.contains(fun.decode) =>
-                val DefContract(ips, precondition, postcondition) = verifiedDefs(fun.decode)
-                println("partial havoc with contract of " + fun.decode)
-                precondition.foreach(e => addAssert(subst(e, ips.zip(args.map(expr)).toMap)))
-                addEdge(Havoc(Variable(name.decode)))
-                postcondition.foreach(f => addEdge(Assume(f(Variable(name.decode)))))
-              case _ =>
-                println("havoc on " + t)
-                addEdge(Havoc(Variable(name.decode)))
-            }
-          case Some(e) => addAssign(name.decode, e)
-        }
+        case Assign(Ident(name), rhs) if variables.contains(name.decode) =>
+          calcAssign(t, name.decode, rhs)
         case Assign(Ident(name), rhs) =>
           // assignment to unconsidered variable
         case Apply(Select(_, fun), List(arg)) if fun.decode == "precondition" =>
@@ -333,8 +456,18 @@ trait Sav extends PluginComponent {
           addEdge(Assume(expr(arg)))
         case Apply(Select(_, fun), List(arg)) if fun.decode == "assert" =>
           addAssert(expr(arg))
-        case Apply(Select(_, fun), List(arg)) if fun.decode.endsWith("_=")=>
-          // complex assignment -- must be (indirectly) to unconsidered variable
+        case Apply(Select(qualifier, fun), List(rhs)) if fun.decode.endsWith("_=")=>
+          toFieldSelect(qualifier) match {
+            case None => ()
+            case Some(qualifier) =>
+              val f = qualifier + "." + fun.decode
+              val v = f.substring(0, f.length - 2)
+              if (variables.contains(v)) {
+                 calcAssign(t, v, rhs)
+              }
+          }
+        case Apply(Select(qualifier, fun), args) if verifiedDefs.contains(fun.decode) =>
+          addVerifiedCall(t, None, qualifier, fun, args)
         case Apply(Ident(name), List()) if labels.contains(name) =>
           jumpTo(labels(name)._1)
           next = labels(name)._2
