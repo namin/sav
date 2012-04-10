@@ -20,26 +20,45 @@ class SavPlugin(val global: Global) extends Plugin {
   val name = "sav"
   val description = "synthesis, analysis, verification"
   val components = List[PluginComponent](Component)
-  
-  private object Component extends PluginComponent with Sav {
+
+  override def processOptions(options: List[String], error: String => Unit) {
+    for (option <- options) {
+      if (option == "verbose") {
+        Component.verbose = true
+      } else {
+        error("Option not understood: "+option)
+      }
+    }
+  }
+
+  override val optionsHelp: Option[String] = Some(
+    "  -P:sav:verbose             Verbose mode")
+
+  private object Component extends PluginComponent {
     val global: SavPlugin.this.global.type = SavPlugin.this.global
+    var verbose = false
     override val runsAfter = List[String]("cleanup")
     val phaseName = SavPlugin.this.name
     def newPhase(_prev: Phase) = new SavPhase(_prev)    
     
     class SavPhase(prev: Phase) extends StdPhase(prev) {
       override def name = SavPlugin.this.name
-      def apply(unit: CompilationUnit) = go(unit)
-    }
+      def apply(unit: CompilationUnit) = {
+        (new Sav {
+          override val global = Component.global
+          override val verbose = Component.verbose
+        }).go(unit)
+        println("")
+    }}
   }
 }
 
-trait Sav extends PluginComponent {
+trait Sav {
+  val global: Global
   import global._
+  val verbose: Boolean
 
   def go(unit: CompilationUnit) = {
-    println("SAV: GO!")
-
     val classCollector = new ForeachVerifyClassTraverser(collectClassDef)
     classCollector.traverse(unit.body)
 
@@ -48,8 +67,6 @@ trait Sav extends PluginComponent {
 
     val analyzer = new ForeachVerifyDefTraverser(analyzeDef)
     analyzer.traverse(unit.body)
-    
-    println("SAV: Done GO!")
   }
 
   class ForeachVerifyClassTraverser(f: ClassDef => Unit) extends ForeachPartialTreeTraverser({
@@ -94,36 +111,46 @@ trait Sav extends PluginComponent {
   def collectDef(t: DefDef) {
     val contractBuilder = new DefContractBuilder
     contractBuilder.build(t) match {
-      case None => println("Error: Could not build contract")
+      case None => println("Error: Could not build contract for " + t.name.decode)
       case Some(contract) =>
-        println("contract:")
-        println("precondition: " + contract.precondition.map(ScalaPrinter(_)))
-        println("postcondition: " + contract.postcondition.map(f => ScalaPrinter(f(Variable("result")))))
+        if (verbose) {
+          var msg = "contract for " + t.name.decode + ": "
+          if (contract.precondition.isDefined) {
+            msg += "precondition("+ScalaPrinter(contract.precondition.get)+") "
+          }
+          if (contract.postcondition.isDefined) {
+            msg += "postcondition("+ScalaPrinter(contract.postcondition.get(Variable("result")))+") "
+            if (!contract.aliases.isEmpty) {
+              msg += "with aliases " + contract.aliases.map({case (from, to) => from + " = old(" + to + ")"}).mkString(", ")
+            }
+          }
+          if (!contract.precondition.isDefined && !contract.postcondition.isDefined) {
+            msg += "<none>"
+          }
+          println(msg)
+        }
     }
   }
   def analyzeDef(t: DefDef) {
-    println("SAV: Analyzing " + t.name)
-
+    if (verbose) println("verifying " + t.name + "...")
     val cfgBuilder = new DefCFGBuilder
     cfgBuilder.build(t) match {
-      case None => println("Error: Could not build CFG")
+      case None => println("Error: Could not build CFG for " + t.name)
       case Some(cfg) =>
         val vcgs = VCG(cfg)
         var verified = true
         vcgs foreach { e =>
-          println("VCG:")
-          println(ScalaPrinter(e))
-          println("Validity:")
+          if (verbose) print("  ")
           Prover.isSatisfiable(Not(e)) match {
-            case Some(true) => {println("Invalid"); verified = false}
-            case Some(false) => println("Valid")
-            case None => {println("Unknown"); verified = false}
+            case Some(true) => {if (verbose) print("Invalid"); verified = false}
+            case Some(false) => if (verbose) print("Valid")
+            case None => {if (verbose) print("Unknown"); verified = false}
           }
+          if (verbose) println(": " + ScalaPrinter(e))
         }
-        if (verified) println("Program verification successful!")
-        else println("Program verification failed")
+        if (verified) println("successfully verified " + t.name + " with " + cfgBuilder.n_warnings + " warning(s)")
+        else println("failed to verify " + t.name)
     }
-    println("SAV: Done Analyzing " + t.name)
   }
 
   class VerifyDefTraverser extends Traverser {
@@ -175,7 +202,6 @@ trait Sav extends PluginComponent {
         variables += t.name.decode
         true
       } else {
-        println("ignoring variable " + t.name + " of type " + t.tpt)
         false
       }
     }
@@ -255,7 +281,6 @@ trait Sav extends PluginComponent {
     override def traverse(t: Tree) { t match {
       case DefDef(mods, name, tparams, vparamss, tpt, rhs @ Block(stats, r)) =>
 	    ok = true
-	    println("def " + name)
 	    for (vparams <- vparamss; v <- vparams) {
 	      if (considerValDef(v)) intParams.append(v.name.decode)
 	    }
@@ -300,6 +325,7 @@ trait Sav extends PluginComponent {
     private var next = cfg.newVertex
     private var lastAssertFrom = cfg.error
     private var lastAssertTo = cfg.error
+    var n_warnings = 0
     cfg.start = next
     
     private def newNext = {
@@ -352,14 +378,14 @@ trait Sav extends PluginComponent {
 
     private def addVerifiedCall(t: Tree, result: Option[Variable], qualifier: Tree, fun: Name, args: List[Tree]) {
       val DefContract(ips, aliases, precondition, postcondition) = verifiedDefs(fun.decode)
-      println("partial havoc with contract of " + fun.decode)
+      if (verbose) println("  calling verified def " + fun.decode)
       var fieldMap = Map[String, Expression]()
       var aliasMap = Map[String, Expression]()
       var todo = mutable.ListBuffer[(() => Unit)]()
       verifiedClasses.get(qualifier.tpe.typeSymbol.name) match {
         case None => assert(aliases.isEmpty)
         case Some(c) => toFieldSelect(qualifier) match {
-          case None => println("verified method call on non-field qualifier"); ok = false
+          case None => println("  verified method call on non-field qualifier"); ok = false
           case Some(qualifier) =>
             fieldMap = collectFields("this.", c).map(s => (s -> Variable(qualifier + s.substring("this".length)))).toMap
             for ((from, to) <- aliases) {
@@ -391,7 +417,7 @@ trait Sav extends PluginComponent {
       toFieldSelect(t) match {
         case None => t.children.foreach(havocRefs)
         case Some(field) => variables.foreach(v => if (v.startsWith(field + ".")) {
-          println("havoc ref " + v)
+          if (verbose) println("  havoc ref " + v)
           addEdge(Havoc(Variable(v)))
         })
       }
@@ -404,7 +430,7 @@ trait Sav extends PluginComponent {
             case Apply(Select(qualifier, fun), args) if verifiedDefs.contains(fun.decode) =>
               addVerifiedCall(t, Some(Variable(v)), qualifier, fun, args)
             case _ =>
-              println("havoc on " + t)
+              if (verbose) println("  havoc " + v)
               addEdge(Havoc(Variable(v)))
               havocRefs(rhs)
           }
@@ -423,7 +449,9 @@ trait Sav extends PluginComponent {
       res match {
         case None => toFieldSelect(t) match {
           case None => havocRefs(t)
-          case Some(field) => println("warning: possible aliasing of " + field)
+          case Some(field) =>
+            n_warnings += 1
+            println("  warning: possible aliasing of " + field)
         }
         case Some(_) => ()
       }
@@ -432,15 +460,18 @@ trait Sav extends PluginComponent {
 
     override def considerValDef(t: ValDef) = {
       val res = super.considerValDef(t)
+      if (!res) {
+        if (verbose) println("  ignoring variable " + t.name + " of type " + t.tpt)
+      }
       if (!res && verifiedClasses.contains(t.tpt.symbol.name)) {
-        println("warning: ignoring any aliasing involving " + t.name.decode)
+        n_warnings += 1
+        println("  warning: ignoring any aliasing involving " + t.name.decode)
       }
       res
     }
 
     override def traverse(t: Tree) { t match {
         case DefDef(mods, name, tparams, vparamss, tpt, rhs @ Block(stats, r)) =>
-          println("def " + name)
           for (vparams <- vparamss; v <- vparams) considerValDef(v)
           if (tpt.toString == "Unit") {
           	traverse(rhs)
@@ -516,7 +547,7 @@ trait Sav extends PluginComponent {
           next = labels(name)._2
         case Literal(Constant(())) => ()
         case _ =>
-          println("missing case: " + t.getClass + " " + t)
+          println("  missing case: " + t.getClass + " " + t)
           ok = false
       }
     }
