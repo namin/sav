@@ -147,14 +147,21 @@ trait Sav extends PluginComponent {
       }
       res
     }
-    protected def toFieldSelect(t: Tree): Option[String] =  t match {
-      case Apply(s @ Select(qualifier, name), List()) =>
-        toFieldSelect(qualifier) match {
-          case None => None
-          case Some(prefix) => Some(prefix + "." + name.decode)
-        }
-      case This(tpt) => Some("this")
-      case _ => None
+    protected def toFieldSelect(t: Tree): Option[String] =  {
+      def rec(t: Tree) = t match {
+        case Apply(s @ Select(qualifier, name), List()) =>
+          toFieldSelect(qualifier) match {
+            case None => None
+            case Some(prefix) => Some(prefix + "." + name.decode)
+          }
+        case t @ This(tpt) if (t.symbol.tpe.typeSymbol.name.decode == classContract.get.name) =>
+          Some("this")
+        case _ => None
+      }
+      classContract match {
+        case None => None
+        case Some(c) => rec(t)
+      }
     }
     private def isFieldSelect(t: Tree) = {
       toFieldSelect(t) match {
@@ -367,7 +374,8 @@ trait Sav extends PluginComponent {
             }
         }
       }
-      val argsMap = ips.zip(args.map(expr)).toMap
+      val (iargs, oargs) = args.partition(t => t.tpe.typeSymbol.name.decode == "Int")
+      val argsMap = ips.zip(iargs.map(expr)).toMap
       var m = fieldMap ++ argsMap
       precondition.foreach(e => addAssert(subst(e, m)))
       result.foreach(v => addEdge(Havoc(v)))
@@ -377,10 +385,21 @@ trait Sav extends PluginComponent {
         case None => NumericalConst(0)
         case Some(v) => v
       }), m))))
+      oargs.foreach(havocRefs)
+    }
+
+    private def havocRefs(t: Tree) {
+      toFieldSelect(t) match {
+        case None => t.children.foreach(havocRefs)
+        case Some(field) => variables.foreach(v => if (v.startsWith(field + ".")) {
+          println("havoc ref " + v)
+          addEdge(Havoc(Variable(v)))
+        })
+      }
     }
 
     private def calcAssign(t: Tree, v: String, rhs: Tree) {
-      exprIfOk(rhs) match {
+      super.exprIfOk(rhs) match {
         case None =>
           rhs match {
             case Apply(Select(qualifier, fun), args) if verifiedDefs.contains(fun.decode) =>
@@ -388,6 +407,7 @@ trait Sav extends PluginComponent {
             case _ =>
               println("havoc on " + t)
               addEdge(Havoc(Variable(v)))
+              havocRefs(rhs)
           }
         case Some(e) => addAssign(v, e)
       }
@@ -399,6 +419,26 @@ trait Sav extends PluginComponent {
       if (ok) Some(cfg) else None
     }
  
+    override def exprIfOk(t: Tree) = {
+      val res = super.exprIfOk(t)
+      res match {
+        case None => toFieldSelect(t) match {
+          case None => havocRefs(t)
+          case Some(field) => println("warning: possible aliasing of " + field)
+        }
+        case Some(_) => ()
+      }
+      res
+    }
+
+    override def considerValDef(t: ValDef) = {
+      val res = super.considerValDef(t)
+      if (!res && verifiedClasses.contains(t.tpt.symbol.name)) {
+        println("warning: ignoring any aliasing involving " + t.name.decode)
+      }
+      res
+    }
+
     override def traverse(t: Tree) { t match {
         case DefDef(mods, name, tparams, vparamss, tpt, rhs @ Block(stats, r)) =>
           println("def " + name)
@@ -407,6 +447,7 @@ trait Sav extends PluginComponent {
           	traverse(rhs)
           } else {
             traverseTrees(stats)
+            exprIfOk(r); ()
           }
         case Block(stats, expr) => super.traverse(t)
         case v @ ValDef(mods, name, tpt, rhs)=>
@@ -416,6 +457,8 @@ trait Sav extends PluginComponent {
               case _ => rhs
             }
             addAssign(name.decode, expr(res))
+          } else {
+            exprIfOk(rhs); ()
           }
         case LabelDef(name, List(), rhs @ If(cond, thenp, Literal(Constant(())))) =>
           addWhileLabel(name)
@@ -448,6 +491,7 @@ trait Sav extends PluginComponent {
           calcAssign(t, name.decode, rhs)
         case Assign(Ident(name), rhs) =>
           // assignment to unconsidered variable
+          exprIfOk(rhs); ()
         case Apply(Select(_, fun), List(arg)) if fun.decode == "precondition" =>
           addEdge(Assume(expr(arg)))
         case Apply(Select(_, fun), List(arg)) if fun.decode == "postcondition" =>
@@ -458,7 +502,7 @@ trait Sav extends PluginComponent {
           addAssert(expr(arg))
         case Apply(Select(qualifier, fun), List(rhs)) if fun.decode.endsWith("_=")=>
           toFieldSelect(qualifier) match {
-            case None => ()
+            case None => exprIfOk(rhs); ()
             case Some(qualifier) =>
               val f = qualifier + "." + fun.decode
               val v = f.substring(0, f.length - 2)
