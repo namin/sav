@@ -25,12 +25,21 @@ object ex7 {
   }
 
   @verify
-  def transfer(a: BankAccount, b: BankAccount, amount: Int) {
-    precondition(amount >= 0 && a.balance >= amount && b.balance >= 0)
-    val old_a_balance = old(a.balance)
-    val old_b_balance = old(b.balance)
-    a.withdraw(amount)
-    b.deposit(amount)
-    postcondition(a.balance + b.balance == old_a_balance + old_b_balance && a.balance >= 0 && b.balance >= 0)
+  class DoubleBankAccount {
+    val savings = new BankAccount
+    val checking = new BankAccount
+
+    @verify
+    def transfer(amount: Int) {
+      precondition(amount >= 0 && savings.balance >= amount && checking.balance >= 0)
+      val old_savings_balance = old(savings.balance)
+      val old_checking_balance = old(checking.balance)
+
+      savings.withdraw(amount)
+      checking.deposit(amount)
+
+      postcondition(savings.balance + checking.balance == old_savings_balance + old_checking_balance && savings.balance >= 0 && checking.balance >= 0)
+    }
   }
+
 }
