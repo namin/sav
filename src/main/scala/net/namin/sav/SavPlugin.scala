@@ -272,26 +272,25 @@ trait Sav extends PluginComponent {
 	      traverseTrees(stats)
 	      traverse(r)
 	    }
-        case v @ ValDef(mods, name, tpt, Apply(Select(_, fun), List(rhs))) if fun.decode == "old" && !mods.isMutable =>
-          if (considerValDef(v)) { expr(rhs) match {
-            case Variable(x, _) => variables += name.decode; aliases += (name.decode -> x)
-            case _ => println(name.decode + " is not a proper alias")
-          }}
-	    case Apply(Select(_, fun), List(arg)) if fun.decode == "precondition" =>
-	      val e = expr(arg)
-	      precondition = precondition match {
-	        case None => Some(e)
-	        case Some(pe) => Some(simplify(Conjunction(pe, e)))
-	      }
-	    case Apply(Select(_, fun), List(arg)) if fun.decode == "postcondition" =>
-	      val e = expr(arg)
-	      postcondition = postcondition match {
-	        case None => Some(e)
-	        case Some(pe) => Some(simplify(Conjunction(pe, e)))
-	      }
-	    case _ => ()
-      }
-    }
+      case v @ ValDef(mods, name, tpt, Apply(Select(_, fun), List(rhs))) if fun.decode == "old" && !mods.isMutable =>
+        if (considerValDef(v)) { expr(rhs) match {
+          case Variable(x, _) => variables += name.decode; aliases += (name.decode -> x)
+          case _ => println(name.decode + " is not a proper alias")
+        }}
+      case Apply(Select(_, fun), List(arg)) if fun.decode == "precondition" =>
+	val e = expr(arg)
+        precondition = precondition match {
+	  case None => Some(e)
+	  case Some(pe) => Some(simplify(Conjunction(pe, e)))
+	}
+      case Apply(Select(_, fun), List(arg)) if fun.decode == "postcondition" =>
+	val e = expr(arg)
+        postcondition = postcondition match {
+	  case None => Some(e)
+	  case Some(pe) => Some(simplify(Conjunction(pe, e)))
+        }
+      case _ => ()
+    }}
   }
 
   class DefCFGBuilder extends VerifyDefTraverser {
