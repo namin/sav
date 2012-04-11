@@ -2,7 +2,7 @@ Course Project in Synthesis, Analysis and Verification in Scala
 ===============================================================
 
 This project develops the [`sav`][SavPlugin] Scala compiler plugin,
-which integrats the Scala compiler with the verifier built during the
+which integrates the Scala compiler with the verifier built during the
 [EPFL SAV 2012 course][sav12].
 
 The [SAV verifier][lazabs] takes in the [CFG][cfg] representation of a
@@ -40,6 +40,12 @@ Scala to be used in verified methods.
 
 A `while` loop invariant is expressed as an `assert` statement
 immediately preceding it.
+
+It is possible to refer to "old" values of a field in a
+`postcondition`. The pattern is to create `Int vals` at the beginning
+of the verified method, where the right-hand side is wrapped in an
+`old` library call, a no-op that the plugin uses as a signal. See the
+last motivating example.
 
 Motivating Examples
 -------------------
