@@ -42,7 +42,7 @@ A `while` loop invariant is expressed as an `assert` statement
 immediately preceding it.
 
 It is possible to refer to "old" values of a field in a
-`postcondition`. The pattern is to create `Int vals` at the beginning
+`postcondition`. The pattern is to create `Int val`s at the beginning
 of the verified method, where the right-hand side is wrapped in an
 `old` library call, a no-op that the plugin uses as a signal. See the
 last motivating example.
@@ -74,17 +74,18 @@ that cannot be handled because it is beyond Princess' powers.
 
 `@verify` classes raises the issue of aliasing. The limitation that
 non-`Int` fields must be immutable to be considered in checked boolean
-clauses is there to contain the damage of aliasing. The invalid
-[`inv1`][inv1] and [`inv3`][inv3] examples demonstrates how the plugin
-deals with unsoundess caused by aliasing by generating warnings. In
-`inv1`, the `bar` is correct, except when the parameter `foo` is
-`this`. This aliasing possibility generates a warning, but the method
-still successfully verifies. Fortunately, the `evil` method which
-calls it in the aliasing configuration correctly fails to verify. In
-`inv3`, the `postcondition` in the `baz` method always fails because
-of predictable aliasing -- warnings are issued, but, as of now,
-aliasing is not explicitly handled so the method still successfully
-verifies.
+clauses is there to contain the damage of aliasing. Aliasing is the
+only known source of unsoundness, and the plugin deals with it by
+generating warnings. The [`inv1`][inv1] and [`inv3`][inv3] examples
+are invalid because of aliasing . In `inv1`, the `bar` is correct,
+except when the parameter `foo` is `this`. This aliasing possibility
+generates a warning, but the method still successfully
+verifies. Fortunately, the `evil` method which calls it in the
+aliasing configuration correctly fails to verify (thanks to the
+havocing of the arguments passed by reference). In `inv3`, the
+`postcondition` in the `baz` method always fails because of
+predictable aliasing -- warnings are issued, but, as of now, aliasing
+is not explicitly handled so the method still successfully verifies.
 
 Compiling and Testing
 ---------------------
