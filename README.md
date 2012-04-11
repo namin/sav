@@ -1,5 +1,6 @@
 Course Project in Synthesis, Analysis and Verification in Scala
 ===============================================================
+by Nada Amin
 
 This project develops the [`sav`][SavPlugin] Scala compiler plugin,
 which integrates the Scala compiler with the verifier built during the
@@ -77,9 +78,9 @@ non-`Int` fields must be immutable to be considered in checked boolean
 clauses is there to contain the damage of aliasing. Aliasing is the
 only known source of unsoundness, and the plugin deals with it by
 generating warnings. The [`inv1`][inv1] and [`inv3`][inv3] examples
-are invalid because of aliasing . In `inv1`, the `bar` is correct,
-except when the parameter `foo` is `this`. This aliasing possibility
-generates a warning, but the method still successfully
+are invalid because of aliasing . In `inv1`, the `bar` method is
+correct, except when the parameter `foo` is `this`. This aliasing
+possibility generates a warning, but the method still successfully
 verifies. Fortunately, the `evil` method which calls it in the
 aliasing configuration correctly fails to verify (thanks to the
 havocing of the arguments passed by reference). In `inv3`, the
