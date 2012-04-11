@@ -1,7 +1,6 @@
 import net.namin.sav.annotation.verify
 import net.namin.sav.lib._
 
-// Verified classes. Not yet implemented.
 object ex7 {
   @verify
   class BankAccount {
