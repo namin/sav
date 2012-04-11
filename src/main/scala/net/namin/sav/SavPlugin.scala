@@ -279,10 +279,14 @@ trait Sav {
     }
 
     override def traverse(t: Tree) { t match {
-      case DefDef(mods, name, tparams, vparamss, tpt, rhs @ Block(stats, r)) =>
+      case DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
 	    ok = true
 	    for (vparams <- vparamss; v <- vparams) {
 	      if (considerValDef(v)) intParams.append(v.name.decode)
+	    }
+	    val (stats, r) = rhs match {
+	      case Block(stats, r) => (stats, r)
+	      case _ => (Nil, rhs)
 	    }
 	    if (tpt.toString == "Int") {
 	      r match {
@@ -386,17 +390,18 @@ trait Sav {
         case None => assert(aliases.isEmpty)
         case Some(c) => toFieldSelect(qualifier) match {
           case None => println("  verified method call on non-field qualifier"); ok = false
-          case Some(qualifier) =>
-            fieldMap = collectFields("this.", c).map(s => (s -> Variable(qualifier + s.substring("this".length)))).toMap
+          case Some(qs) =>
+            fieldMap = collectFields("this.", c).map(s => (s -> Variable(qs + s.substring("this".length)))).toMap
             for ((from, to) <- aliases) {
               val fromName = fun.decode + ".$." + from
               variables += fromName
               todo.append(() => {
                 addEdge(Havoc(Variable(fun.decode + ".$." + from)))
-                addAssign(fromName, Variable(qualifier + to.substring("this".length)))
+                addAssign(fromName, Variable(qs + to.substring("this".length)))
               })
               aliasMap += (from -> Variable(fromName))
             }
+            todo.append(() => havocRefs(qualifier))
         }
       }
       val (iargs, oargs) = args.partition(t => t.tpe.typeSymbol.name.decode == "Int")
@@ -471,11 +476,15 @@ trait Sav {
     }
 
     override def traverse(t: Tree) { t match {
-        case DefDef(mods, name, tparams, vparamss, tpt, rhs @ Block(stats, r)) =>
+        case DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
           for (vparams <- vparamss; v <- vparams) considerValDef(v)
           if (tpt.toString == "Unit") {
           	traverse(rhs)
           } else {
+            val (stats, r) = rhs match {
+              case Block(stats, r) => (stats, r)
+              case _ => (Nil, rhs)
+            }
             traverseTrees(stats)
             exprIfOk(r); ()
           }
