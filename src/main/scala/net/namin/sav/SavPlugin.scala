@@ -351,13 +351,13 @@ trait Sav {
       } else {
       	(newNext, e)
       }
-      
-   	  cfg.asserts += (from -> ce)
-  	  cfg += (from, Assume(ce), to)
-  	  cfg += (from, Assume(simplify(Not(ce))), cfg.error)
 
-  	  lastAssertFrom = from
-  	  lastAssertTo = to
+      cfg.asserts += (from -> ce)
+      cfg += (from, Assume(ce), to)
+      cfg += (from, Assume(simplify(Not(ce))), cfg.error)
+
+      lastAssertFrom = from
+      lastAssertTo = to
     }
 
     private def addAssign(v: String, rhs: Expression) = {
@@ -479,7 +479,7 @@ trait Sav {
         case DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
           for (vparams <- vparamss; v <- vparams) considerValDef(v)
           if (tpt.toString == "Unit") {
-          	traverse(rhs)
+            traverse(rhs)
           } else {
             val (stats, r) = rhs match {
               case Block(stats, r) => (stats, r)
