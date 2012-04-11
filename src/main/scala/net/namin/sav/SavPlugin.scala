@@ -556,8 +556,9 @@ trait Sav {
           next = labels(name)._2
         case Literal(Constant(())) => ()
         case _ =>
-          println("  missing case: " + t.getClass + " " + t)
-          ok = false
+          exprIfOk(t); ()
+          //println("  missing case: " + t.getClass + " " + t)
+          //ok = false
       }
     }
   }

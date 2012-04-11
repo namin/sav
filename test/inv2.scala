@@ -9,7 +9,7 @@ object inv2 {
     @verify
     def bar(y: Int) {
       x = y
-      val _ = evil(this)
+      evil(this)
       // postcondition is false if y!=0 
       postcondition(x == y)
     }
