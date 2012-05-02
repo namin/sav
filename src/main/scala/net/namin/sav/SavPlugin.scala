@@ -9,6 +9,7 @@ import lazabs.ast.ASTree._
 import lazabs.cfg._
 import lazabs.digraph.Vertex
 import lazabs.prover.Prover
+import lazabs.prover.TheoremProver
 import lazabs.utils.Manip._
 import lazabs.vcg.VCG
 import lazabs.viewer.ScalaPrinter
@@ -23,16 +24,17 @@ class SavPlugin(val global: Global) extends Plugin {
 
   override def processOptions(options: List[String], error: String => Unit) {
     for (option <- options) {
-      if (option == "verbose") {
-        Component.verbose = true
-      } else {
-        error("Option not understood: "+option)
+      option match {
+        case "verbose" => Component.verbose = true
+        case "z3" => Prover.prover = TheoremProver.Z3
+        case _ => error("Option not understood: "+option)
       }
     }
   }
 
   override val optionsHelp: Option[String] = Some(
-    "  -P:sav:verbose             Verbose mode")
+    "  -P:sav:verbose             Verbose mode\n" +
+    "  -P:sav:z3                  Rely on the theorem prover Z3 instead of Princess")
 
   private object Component extends PluginComponent {
     val global: SavPlugin.this.global.type = SavPlugin.this.global

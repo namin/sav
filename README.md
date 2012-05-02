@@ -71,7 +71,10 @@ Limitations
 The verifier relies on the [Princess theorem prover][princess], which
 only supports Presburger arithmetic. In particular, multiplications
 between variables are not allowed. [`neg1`][neg1] shows an example
-that cannot be handled because it is beyond Princess' powers.
+that cannot be handled because it is beyond Princess' powers. Instead
+of Princess, it is possible to use the [Z3 theorem prover][z3] with
+the command-line flag `-P:sav:z3`. The `neg1` example successfully
+verifies with this option.
 
 `@verify` classes raises the issue of aliasing. The limitation that
 non-`Int` fields must be immutable to be considered in checked boolean
@@ -92,8 +95,21 @@ Compiling and Testing
 ---------------------
 `sbt assembly`, then `./run-tests`
 
+To use the `-P:sav:z3` option, and `./run-tests-z3`:
+
+* Install the [Z3 theorem prover][z3]
+
+* The [ScalaZ3 wrapper][ScalaZ3] is provided in `lib/z3.jar`. Replace
+  it if the provided wrapper (for 64bit Linux) does not work on your
+  platform.
+
+* Modify `LD_LIBRARY_PATH` to include the `z3/lib` and `jni`
+  paths. For example, `export LD_LIBRARY_PATH=${Z3_HOME}/lib:/usr/local/lib:/usr/local/lib/jni:/usr/lib/jni`.
+
 [sav12]: http://lara.epfl.ch/w/sav12:top
 [princess]: http://www.philipp.ruemmer.org/princess.shtml
+[z3]: http://research.microsoft.com/en-us/um/redmond/projects/z3/
+[ScalaZ3]: https://github.com/psuter/ScalaZ3
 [SavPlugin]: https://github.com/namin/sav/blob/master/src/main/scala/net/namin/sav/SavPlugin.scala
 [lazabs]: https://github.com/namin/sav/blob/master/src/main/scala/lazabs
 [cfg]: https://github.com/namin/sav/blob/master/src/main/scala/lazabs/cfg/CFG.scala
