@@ -12,6 +12,7 @@ import lazabs.prover.Prover
 import lazabs.prover.TheoremProver
 import lazabs.utils.Manip._
 import lazabs.vcg.VCG
+import lazabs.viewer.DrawGraph
 import lazabs.viewer.ScalaPrinter
 import scala.collection.mutable
 
@@ -27,6 +28,7 @@ class SavPlugin(val global: Global) extends Plugin {
       option match {
         case "verbose" => Component.verbose = true
         case "z3" => Prover.prover = TheoremProver.Z3
+        case "draw-cfgs" => Component.drawCfgs = true
         case _ => error("Option not understood: "+option)
       }
     }
@@ -34,11 +36,13 @@ class SavPlugin(val global: Global) extends Plugin {
 
   override val optionsHelp: Option[String] = Some(
     "  -P:sav:verbose             Verbose mode\n" +
-    "  -P:sav:z3                  Rely on the theorem prover Z3 instead of Princess")
+    "  -P:sav:z3                  Rely on the theorem prover Z3 instead of Princess\n" +
+    "  -P:sav:draw-cfgs           Draw CFGs")
 
   private object Component extends PluginComponent {
     val global: SavPlugin.this.global.type = SavPlugin.this.global
     var verbose = false
+    var drawCfgs = false
     override val runsAfter = List[String]("cleanup")
     val phaseName = SavPlugin.this.name
     def newPhase(_prev: Phase) = new SavPhase(_prev)    
@@ -49,6 +53,7 @@ class SavPlugin(val global: Global) extends Plugin {
         (new Sav {
           override val global = Component.global
           override val verbose = Component.verbose
+          override val drawCfgs = Component.drawCfgs
         }).go(unit)
         println("")
     }}
@@ -59,6 +64,7 @@ trait Sav {
   val global: Global
   import global._
   val verbose: Boolean
+  val drawCfgs: Boolean
 
   def go(unit: CompilationUnit) = {
     val classCollector = new ForeachVerifyClassTraverser(collectClassDef)
@@ -67,7 +73,7 @@ trait Sav {
     val collector = new ForeachVerifyDefTraverser(collectDef)
     collector.traverse(unit.body)
 
-    val analyzer = new ForeachVerifyDefTraverser(analyzeDef)
+    val analyzer = new ForeachVerifyDefTraverser(analyzeDef(unit))
     analyzer.traverse(unit.body)
   }
 
@@ -133,12 +139,19 @@ trait Sav {
         }
     }
   }
-  def analyzeDef(t: DefDef) {
+  def analyzeDef(unit: CompilationUnit)(t: DefDef) {
     if (verbose) println("verifying " + t.name + "...")
     val cfgBuilder = new DefCFGBuilder
     cfgBuilder.build(t) match {
       case None => println("Error: Could not build CFG for " + t.name)
       case Some(cfg) =>
+        if (drawCfgs) {
+          val name = (classContract match {
+            case None => unit.toString.replace(".scala", "")
+            case Some(c) => c.name
+          }) + "-" + t.name
+          DrawGraph(cfg, name)
+        }
         val vcgs = VCG(cfg)
         var verified = true
         vcgs foreach { e =>
