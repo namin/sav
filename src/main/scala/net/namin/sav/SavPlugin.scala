@@ -27,7 +27,6 @@ class SavPlugin(val global: Global) extends Plugin {
       option match {
         case "verbose" => Component.verbose = true
         case "eldarica" => Component.eldarica = true
-        case "interpolate" => Component.interpolate = true
         case "princess" => Prover.setProver(TheoremProver.PRINCESS)
         case "draw-cfgs" => Component.drawCfgs = true
         case "draw-reachs" => Component.drawReachs = true
@@ -39,7 +38,6 @@ class SavPlugin(val global: Global) extends Plugin {
   override val optionsHelp: Option[String] = Some(
     "  -P:sav:verbose             Verbose mode\n" +
     "  -P:sav:eldarica            Follow-up with Eldarica magic\n" +
-    "  -P:sav:interpolate         Use interpolation in Eldarica magic\n" +
     "  -P:sav:princess            Rely on the theorem prover Princess instead of Z3\n" +
     "  -P:sav:draw-cfgs           Draw CFGs\n" +
     "  -P:sav:draw-reachs         Draw Reachability trees\n")
@@ -48,7 +46,6 @@ class SavPlugin(val global: Global) extends Plugin {
     val global: SavPlugin.this.global.type = SavPlugin.this.global
     var verbose = false
     var eldarica = false
-    var interpolate = false
     var drawCfgs = false
     var drawReachs = false
     override val runsAfter = List[String]("cleanup")
@@ -62,7 +59,6 @@ class SavPlugin(val global: Global) extends Plugin {
           override val global = Component.global
           override val verbose = Component.verbose
           override val eldarica = Component.eldarica
-          override val interpolate = Component.interpolate
           override val drawCfgs = Component.drawCfgs
           override val drawReachs = Component.drawReachs
         }).go(unit)
@@ -76,7 +72,6 @@ trait Sav {
   import global._
   val verbose: Boolean
   val eldarica: Boolean
-  val interpolate: Boolean
   val drawCfgs: Boolean
   val drawReachs: Boolean
 
@@ -197,6 +192,7 @@ trait Sav {
         }
         import lazabs.art._
         if (eldarica || drawReachs) {
+          val interpolate = true
           val spuriousness = true
           val searchMethod = SearchMethod.DFS
           val dynamicAccelerate = false
@@ -519,15 +515,9 @@ trait Sav {
         val backward = MakeCFG.makeParentMap(forward)
         val vars = variables.map(Variable(_)).toSet
         val varMap = vertices.map(v => v -> vars).toMap
-        var predMap= vertices.map({ v =>
-          var lst: List[(Expression,List[Int])] = List((Variable("sc_LBE",None),List[Int]()))
-          if (v.id == -1) lst = (BoolConst(false),List()) :: lst
-          asserts.get(v).foreach(e => lst = (e,List()) :: lst)
-          v -> lst
-        }).toMap
         val loops = labels.values.toList.map(_._1)
 
-        val cfg = CFG(start, forward, backward, predMap, varMap, Map.empty, Map.empty, None, asserts)
+        val cfg = CFG(start, forward, backward, Map.empty, varMap, Map.empty, Map.empty, None, asserts)
         Some((cfg, loops))
       } else None
     }
