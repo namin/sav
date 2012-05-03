@@ -81,6 +81,7 @@ trait Sav {
   val drawReachs: Boolean
 
   def go(unit: CompilationUnit) = {
+    println("-- begin " + unit.toString + " --")
     val classCollector = new ForeachVerifyClassTraverser(collectClassDef)
     classCollector.traverse(unit.body)
 
@@ -89,6 +90,7 @@ trait Sav {
 
     val analyzer = new ForeachVerifyDefTraverser(analyzeDef(unit))
     analyzer.traverse(unit.body)
+    println("-- end " + unit.toString + " --")
   }
 
   class ForeachVerifyClassTraverser(f: ClassDef => Unit) extends ForeachPartialTreeTraverser({
