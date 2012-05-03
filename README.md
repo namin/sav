@@ -68,13 +68,13 @@ Motivating Examples
 Limitations
 -----------
 
-The verifier relies on the [Princess theorem prover][princess], which
-only supports Presburger arithmetic. In particular, multiplications
-between variables are not allowed. [`neg1`][neg1] shows an example
-that cannot be handled because it is beyond Princess' powers. Instead
-of Princess, it is possible to use the [Z3 theorem prover][z3] with
-the command-line flag `-P:sav:z3`. The `neg1` example successfully
-verifies with this option.
+By default, the verifier relies on the [Z3 theorem prover][z3]. With
+the option `-P:sav:princess`, it is possible to use the
+[Princess theorem prover][princess] instead, which only supports
+Presburger arithmetic. In particular, multiplications between
+variables are not allowed. [`neg1`][neg1] shows an example that cannot
+be handled because it is beyond Princess' powers. However, the `neg1`
+example successfully verifies without this option.
 
 `@verify` classes raises the issue of aliasing. The limitation that
 non-`Int` fields must be immutable to be considered in checked boolean
@@ -94,8 +94,6 @@ is not explicitly handled so the method still successfully verifies.
 Compiling and Testing
 ---------------------
 `sbt assembly`, then `./run-tests`
-
-To use the `-P:sav:z3` option, and `./run-tests-z3`:
 
 * Install the [Z3 theorem prover][z3]
 

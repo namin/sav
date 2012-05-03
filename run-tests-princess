@@ -1,0 +1,6 @@
+#!/bin/bash
+
+export SCALAC_OPTIONS="$SCALAC_OPTIONS -P:sav:princess"
+
+./run-base-tests
+

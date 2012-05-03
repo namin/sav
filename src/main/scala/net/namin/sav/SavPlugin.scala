@@ -7,7 +7,6 @@ import nsc.plugins.Plugin
 import nsc.plugins.PluginComponent
 import lazabs.ast.ASTree._
 import lazabs.cfg._
-import lazabs.digraph.Vertex
 import lazabs.prover.Prover
 import lazabs.prover.TheoremProver
 import lazabs.utils.Manip._
@@ -27,7 +26,7 @@ class SavPlugin(val global: Global) extends Plugin {
     for (option <- options) {
       option match {
         case "verbose" => Component.verbose = true
-        case "z3" => Prover.prover = TheoremProver.Z3
+        case "princess" => Prover.setProver(TheoremProver.PRINCESS)
         case "draw-cfgs" => Component.drawCfgs = true
         case _ => error("Option not understood: "+option)
       }
@@ -36,7 +35,7 @@ class SavPlugin(val global: Global) extends Plugin {
 
   override val optionsHelp: Option[String] = Some(
     "  -P:sav:verbose             Verbose mode\n" +
-    "  -P:sav:z3                  Rely on the theorem prover Z3 instead of Princess\n" +
+    "  -P:sav:z3                  Rely on the theorem prover Princess instead of Z3\n" +
     "  -P:sav:draw-cfgs           Draw CFGs")
 
   private object Component extends PluginComponent {
@@ -145,13 +144,13 @@ trait Sav {
     cfgBuilder.build(t) match {
       case None => println("Error: Could not build CFG for " + t.name)
       case Some(cfg) =>
-        if (drawCfgs) {
-          val name = (classContract match {
-            case None => unit.toString.replace(".scala", "")
-            case Some(c) => c.name
-          }) + "-" + t.name
-          DrawGraph(cfg, name)
-        }
+//        if (drawCfgs) {
+//          val name = (classContract match {
+//            case None => unit.toString.replace(".scala", "")
+//            case Some(c) => c.name
+//          }) + "-" + t.name
+//          DrawGraph(cfg, name)
+//        }
         val vcgs = VCG(cfg)
         var verified = true
         vcgs foreach { e =>
@@ -224,12 +223,12 @@ trait Sav {
     def exprIfOk(t: Tree) = {
       val exprBuilder = new ExpressionBuilder(false)
       val expr = exprBuilder.build(t)
-      if (exprBuilder.ok) Some(simplify(expr)) else None
+      if (exprBuilder.ok) Some(shortCircuit(expr)) else None
     }
     def expr(t: Tree) = {
       val exprBuilder = new ExpressionBuilder(true)
       val expr = exprBuilder.build(t)
-      if (exprBuilder.ok) simplify(expr)
+      if (exprBuilder.ok) shortCircuit(expr)
       else { ok = false; expr }
     }
     class ExpressionBuilder(signalError: Boolean) {
@@ -269,7 +268,7 @@ trait Sav {
       val intParamsList = intParams.toList
       val intParamsSet = intParamsList.toSet
       if (!ok) None else {
-      	if (precondition.exists(e => !freeVars(e).subsetOf(intParamsSet union fields))) {
+      	if (precondition.exists(e => !freeVars(e).map(_.name).subsetOf(intParamsSet union fields))) {
       	  println("precondition has free variables")
       	  ok = false
       	  None
@@ -277,7 +276,7 @@ trait Sav {
       	  println("aliases have free variables")
       	  ok = false
       	  None
-      	} else if (postcondition.exists(e => !freeVars(e).subsetOf(
+      	} else if (postcondition.exists(e => !freeVars(e).map(_.name).subsetOf(
       	    intParamsSet union fields union result.toSet union aliases.keys.toSet))) {
       	  println("postcondition has free variables")
       	  ok = false
@@ -286,7 +285,7 @@ trait Sav {
       	  verifiedDefs += (t.name ->
       	    DefContract(intParamsList, aliases, precondition, result match {
       	      case None => postcondition.map(e => r => e)
-      	      case Some(v) => postcondition.map(e => r => subst(e, Map(v -> r)))
+      	      case Some(v) => postcondition.map(e => r => substitute(e, Map(Variable(v) -> r)))
             }))
           Some(verifiedDefs(t.name))
       	}
@@ -325,51 +324,54 @@ trait Sav {
 	val e = expr(arg)
         precondition = precondition match {
 	  case None => Some(e)
-	  case Some(pe) => Some(simplify(Conjunction(pe, e)))
+	  case Some(pe) => Some(shortCircuit(Conjunction(pe, e)))
 	}
       case Apply(Select(_, fun), List(arg)) if fun.decode == "postcondition" =>
 	val e = expr(arg)
         postcondition = postcondition match {
 	  case None => Some(e)
-	  case Some(pe) => Some(simplify(Conjunction(pe, e)))
+	  case Some(pe) => Some(shortCircuit(Conjunction(pe, e)))
         }
       case _ => ()
     }}
   }
 
   class DefCFGBuilder extends VerifyDefTraverser {
-    private val cfg = new CFG()
-    override protected val variables = cfg.variables
-    private var labels = Map[Name,(Vertex,Vertex)]()
-    private var next = cfg.newVertex
-    private var lastAssertFrom = cfg.error
-    private var lastAssertTo = cfg.error
+    private var labels = Map[Name,(CFGVertex,CFGVertex)]()
+    private val errorVertex = newVertex
+    private var next = newVertex
+    private var lastAssertFrom = errorVertex
+    private var lastAssertTo = errorVertex
     var n_warnings = 0
-    cfg.start = next
-    
+    private val start = next
+    private var asserts: Map[CFGVertex, Expression] = Map.empty
+    private var transitions: Set[(CFGVertex, Label, CFGVertex)] = Set.empty
+
+    private def newVertex = CFGVertex(FreshCFGStateId.apply)
+ 
     private def newNext = {
       val from = next
-      next = cfg.newVertex
+      next = newVertex
       (from, next)
     }
 
-    private def addEdge(label: CFGLabel) = {
+    private def addEdge(label: Label) = {
       val (from, to) = newNext     
-      cfg += (from, label, to)
+      transitions += ((from, label, to))
     }
 
     private def addAssert(e: Expression) = {
       val ((from, to), ce) = if (lastAssertTo == next) {
-      	val pe = cfg.asserts(lastAssertFrom)
-      	val ce = simplify(Conjunction(pe, e))
+      	val pe = asserts(lastAssertFrom)
+      	val ce = shortCircuit(Conjunction(pe, e))
       	((lastAssertFrom, lastAssertTo), ce)
       } else {
       	(newNext, e)
       }
 
-      cfg.asserts += (from -> ce)
-      cfg += (from, Assume(ce), to)
-      cfg += (from, Assume(simplify(Not(ce))), cfg.error)
+      asserts += (from -> ce)
+      transitions += ((from, Assume(ce), to))
+      transitions += ((from, Assume(shortCircuit(Not(ce))), errorVertex))
 
       lastAssertFrom = from
       lastAssertTo = to
@@ -380,18 +382,18 @@ trait Sav {
     }
 
     private def addWhileLabel(n: Name) = {
-      assert(lastAssertFrom != cfg.error && lastAssertTo == next, "while loop must be preceded by assert!")
+      assert(lastAssertFrom != errorVertex && lastAssertTo == next, "while loop must be preceded by assert!")
       labels += (n -> (lastAssertFrom, lastAssertTo))
-      lastAssertFrom = cfg.error
-      lastAssertTo = cfg.error
+      lastAssertFrom = errorVertex
+      lastAssertTo = errorVertex
     }
     
     private def addDoWhileLabel(n: Name) = {
       labels += (n -> (next, next))
     }
 
-    private def jumpTo(v: Vertex) = {
-      cfg += (next, Assume(BoolConst(true)), v)
+    private def jumpTo(v: CFGVertex) = {
+      transitions += ((next, Assume(BoolConst(true)), v))
       next = v
     }
 
@@ -422,14 +424,14 @@ trait Sav {
       val (iargs, oargs) = args.partition(t => t.tpe.typeSymbol.name.decode == "Int")
       val argsMap = ips.zip(iargs.map(expr)).toMap
       var m = fieldMap ++ argsMap
-      precondition.foreach(e => addAssert(subst(e, m)))
+      precondition.foreach(e => addAssert(substitute(e, m.map(x => Variable(x._1) -> x._2))))
       result.foreach(v => addEdge(Havoc(v)))
       todo.foreach(f => f())
       m = m ++ aliasMap
-      postcondition.foreach(f => addEdge(Assume(subst(f(result match {
+      postcondition.foreach(f => addEdge(Assume(substitute(f(result match {
         case None => NumericalConst(0)
         case Some(v) => v
-      }), m))))
+      }), m.map(x => Variable(x._1) -> x._2)))))
       oargs.foreach(havocRefs)
     }
 
@@ -461,7 +463,13 @@ trait Sav {
     def build(t: DefDef) = {
       init()
       traverse(t)
-      if (ok) Some(cfg) else None
+      if (ok) {
+        val vertices = transitions.map(_._1) union transitions.map(_._3)
+        val forward = transitions.groupBy(_._1).map({ case(from, s) => (from -> s.map({ case(_, label, to) => CFGAdjacent(label, to) }))})
+        val backward = transitions.groupBy(_._3).map({ case(to, s) => (to -> s.map({ case (from, label, _) => CFGAdjacent(label, from) }))})
+        val cfg = CFG(start, forward, backward, Map.empty, Map(start -> variables.map(Variable(_)).toSet), Map.empty, Map.empty, None, asserts)
+        Some(cfg)
+      } else None
     }
  
     override def exprIfOk(t: Tree) = {
@@ -520,7 +528,7 @@ trait Sav {
           addEdge(Assume(conde))
           traverse(thenp)
           assert(labels(name)._2 == next)
-          addEdge(Assume(simplify(Not(conde))))
+          addEdge(Assume(shortCircuit(Not(conde))))
         case LabelDef(name, List(), rhs @ Block(stats, If(cond, thenp, Literal(Constant(()))))) =>
           addDoWhileLabel(name)
           traverseTrees(stats)
@@ -530,7 +538,7 @@ trait Sav {
           traverse(thenp)
           assert(labels(name)._2 == next)
           next = from
-          addEdge(Assume(simplify(Not(conde))))
+          addEdge(Assume(shortCircuit(Not(conde))))
         case If(cond, thenp, elsep) =>
           val from = next
           val conde = exprIfOk(cond)
@@ -538,7 +546,7 @@ trait Sav {
           traverse(thenp)
           val end = next
           next = from
-          conde.foreach(e => addEdge(Assume(simplify(Not(e)))))
+          conde.foreach(e => addEdge(Assume(shortCircuit(Not(e)))))
           traverse(elsep)
           jumpTo(end)
         case Assign(Ident(name), rhs) if variables.contains(name.decode) =>

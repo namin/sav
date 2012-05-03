@@ -1,0 +1,9 @@
+#!/bin/bash
+
+mkdir -p out
+
+echo "=== These examples should all verify successfully without warnings ==="
+scalac -Xplugin:target/sav-assembly-0.1-SNAPSHOT.jar $SCALAC_OPTIONS src/main/scala/net/namin/sav/lib.scala src/main/scala/net/namin/sav/annotation/verify.scala test/ex*.scala -d out
+
+echo "=== These examples should all (ideally) fail to verify or (at worst) verify with warnings ==="
+scalac -Xplugin:target/sav-assembly-0.1-SNAPSHOT.jar $SCALAC_OPTIONS src/main/scala/net/namin/sav/lib.scala src/main/scala/net/namin/sav/annotation/verify.scala test/inv*.scala -d out

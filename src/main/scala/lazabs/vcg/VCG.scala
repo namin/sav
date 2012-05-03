@@ -2,7 +2,6 @@ package lazabs.vcg
 
 import lazabs.ast.ASTree._
 import lazabs.cfg._
-import lazabs.digraph._
 import lazabs.utils.Manip
 
 object VCG {
@@ -13,48 +12,48 @@ object VCG {
   def apply(cfg: CFG) : Set[Expression] = {
     var result = Set[Expression]()
     
+    val parentSets = createParentSets(cfg)
     val init = cfg.asserts.keySet.union(Set(cfg.start))
-    var processed = Set[Vertex]()
-    var ready = List[Vertex]()
-    var notReady =  cfg.getVertices.diff(init)
+    var processed = Set[CFGVertex]()
+    var ready = List[CFGVertex]()
+    var notReady = parentSets.keySet.diff(init)
     
-    var basicPaths = Map[cfg.Edge, Map[Vertex, Expression]]()
+    var basicPaths = Map[(CFGVertex, CFGAdjacent), Map[CFGVertex, Expression]]()
     
-    def nameVariable(vertex: Vertex, variable: String) = {
+    def nameVariable(vertex: CFGVertex, variable: String) = {
       variable + "$" + vertex.id
     }
     
-    def renameVariables(vertex: Vertex, f: Expression) = {
-      Manip.subst(f, cfg.variables.map(v => (v, Variable(nameVariable(vertex, v)))).toMap)
+    def renameVariables(vertex: CFGVertex, f: Expression) = {
+      Manip.substitute(f, cfg.allVariables.map(v => (Variable(v), Variable(nameVariable(vertex, v)))).toMap)
     }
     
-    def addEdge(e: cfg.Edge, f: Expression) = {
-      val (from, label, to) = e
-      val fs = label match {
+    def addEdge(from: CFGVertex, e: CFGAdjacent, f: Expression) = {
+      val fs = e.label match {
         case Assume(p) => 
-          renameVariables(from, p) :: cfg.variables.toList.map(v => Equality(Variable(nameVariable(from, v)), Variable(nameVariable(to, v))))
+          renameVariables(from, p) :: cfg.allVariables.toList.map(v => Equality(Variable(nameVariable(from, v)), Variable(nameVariable(e.to, v))))
         case Assign(Variable(lhs, _), rhs: Expression) => 
-           cfg.variables.toList.map(v =>
-             if (v == lhs) Equality(Variable(nameVariable(to, v)), renameVariables(from, rhs))
-             else Equality(Variable(nameVariable(from, v)), Variable(nameVariable(to, v))))
+           cfg.allVariables.toList.map(v =>
+             if (v == lhs) Equality(Variable(nameVariable(e.to, v)), renameVariables(from, rhs))
+             else Equality(Variable(nameVariable(from, v)), Variable(nameVariable(e.to, v))))
         case Havoc(Variable(havocVar, _)) =>
-           for (v <- cfg.variables.toList; if v != havocVar) yield Equality(Variable(nameVariable(from, v)), Variable(nameVariable(to, v)))
+           for (v <- cfg.allVariables.toList; if v != havocVar) yield Equality(Variable(nameVariable(from, v)), Variable(nameVariable(e.to, v)))
       }
-      Manip.simplify(fs.fold(f)(Conjunction(_, _)))
+      Manip.shortCircuit(fs.fold(f)(Conjunction(_, _)))
     }
     
-    def checkChildren(v: Vertex, m: Map[Vertex, Expression]) {
-      for ((label, to) <- cfg.out(v)) {
-        basicPaths += ((v, label, to) -> m.mapValues(addEdge((v, label, to), _)))
+    def checkChildren(v: CFGVertex, m: Map[CFGVertex, Expression]) {
+      for (e <- cfg.transitions.getOrElse(v, Set())) {
+        basicPaths += ((v, e) -> m.mapValues(addEdge(v, e, _)))
         
-        if (notReady.contains(to) && cfg.in(to).map(_._1).diff(processed).isEmpty) {
-          notReady -= to
-          ready = to :: ready
+        if (notReady.contains(e.to) && parentSets(e.to).map(_._1).diff(processed).isEmpty) {
+          notReady -= e.to
+          ready = e.to :: ready
         }
         
-        cfg.asserts.get(to).foreach({assertFormula =>
-          for ((root, formula) <- basicPaths(v, label, to)) {
-            result += Implication(formula, renameVariables(to, assertFormula))
+        cfg.asserts.get(e.to).foreach({assertFormula =>
+          for ((root, formula) <- basicPaths(v, e)) {
+            result += Implication(formula, renameVariables(e.to, assertFormula))
           }
         })
       }
@@ -76,9 +75,9 @@ object VCG {
       ready = ready.tail
 
       // merge all incoming formulas
-      val es = cfg.in(v).map(t => (t._1, t._2, v))
+      val es = parentSets(v)
       val ps = es.map(basicPaths)
-      var m = Map[Vertex, Expression]()
+      var m = Map[CFGVertex, Expression]()
       for (p <- ps) {
         for ((root, formula) <- p) {
           m.get(root) match {
@@ -99,5 +98,10 @@ object VCG {
     assert(notReady.isEmpty, "The CFG is not sufficiently annotated.")
     
     result
+  }
+
+  private def createParentSets(cfg: CFG): Map[CFGVertex, Set[(CFGVertex, CFGAdjacent)]] = {
+    val edges = for ((v, es) <- cfg.transitions.toSet; e <- es) yield (v,e)
+    edges groupBy {case (v,e) => e.to}     
   }
 }

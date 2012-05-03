@@ -1,8 +1,0 @@
-#!/bin/bash
-
-export SCALAC_OPTIONS="$SCALAC_OPTIONS -P:sav:z3"
-
-./run-tests
-
-echo "=== Z3 only: These examples should all verify successfully without warnings ==="
-scalac -Xplugin:target/sav-assembly-0.1-SNAPSHOT.jar $SCALAC_OPTIONS src/main/scala/net/namin/sav/lib.scala src/main/scala/net/namin/sav/annotation/verify.scala test/neg1.scala -d out

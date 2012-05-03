@@ -1,68 +1,73 @@
 package lazabs.cfg
 
 import lazabs.ast.ASTree._
-import lazabs.digraph._
-import lazabs.viewer.ScalaPrinter
-import scala.collection.mutable
-import lazabs.ast.ASTree._
-import lazabs.utils.Manip._
 
 /**
- * The transitions in the control flow graph consists of assumes, havocs, and assignments 
+ * The transitions in the control flow graph consists of assumes and assignments 
  */
-sealed abstract class CFGLabel
-case class Assume(p: Expression) extends CFGLabel {
-  override def toString = ScalaPrinter(this)
-}
-case class Assign(lhs: Expression, rhs: Expression) extends CFGLabel {
-  override def toString = ScalaPrinter(this)
-}
-case class Havoc(v: Variable) extends CFGLabel {
-  override def toString = ScalaPrinter(this)
-}
+sealed abstract class Label
+case class Assume(p: Expression) extends Label
+case class Assign(lhs: Expression, rhs: Expression) extends Label
+case class Havoc(v: Variable) extends Label
+// the following labels are used in large block encoding
+case class Sequence(l1: Label, l2: Label) extends Label
+case class Choice(l1: Label, l2: Label) extends Label
+// the following label is later accelerated
+// qs are the intermediate states which will later get predicates
+case class TransitiveClosure(ls: List[Label],qs: List[CFGVertex]) extends Label
+// the following label is used for nts files
+case class Transfer(t: Expression) extends Label
 
 /**
  * control flow graph
+ * each vertex has an id - the vertex with id = -1 is an error state.
+ * predicate can have a set of parents
  */
+case class CFGVertex(id: Int) {
+  def getId = id
+}
 
-class CFG extends DiGraphImp[CFGLabel] {
-  val error = newVertex
-  var start = error
-  val variables = mutable.Set[String]()
-  val asserts = mutable.Map[Vertex, Expression]()
-  val predicates = mutable.Set[Expression]()
-
-  /*
-   * Convert to Graphviz format
-   */
-  def toDot: String = {
-    //vertices
-    def vToS(v:Vertex) = {
-      val id = v.id
-      if (v == start) id + "[label=\"START\"];"
-      else if (v == error) id + "[label=\"ERROR\"];"
-      else v.id + "[label=\"" + v.id + "\"];"
-    }
-    val vs = for { v <- getVertices } yield vToS(v)
-
-    //edges
-    val es = for {
-      (Vertex(id1), l:CFGLabel, Vertex(id2)) <- getEdges 
-    } yield id1 + " -> " + id2 + "[label=\"" + lazabs.viewer.ScalaPrinter(l) + "\"];"
-
-    //asserts
-    var assId = -1
-    def getAssId = {assId += 1; "a" + assId}
-    val ass = for {
-      (Vertex(id),e) <- asserts.toSet 
-      val assId = getAssId
-      val vdecl:String = assId + "[label=\"" + lazabs.viewer.ScalaPrinter(e) + "\",shape=box];"
-      val edecl:String= assId + " -> " + id + "[style=dotted];\n"
-    } yield Set(vdecl, edecl)
-
-    //finally
-    val header = "digraph CFG {"
-    val footer = "\n}"
-    (header /: (vs ++ es ++ ass.flatten)) (_ + "\n" + _) + footer
+object FreshCFGStateId {
+  private var curStateCounter = -1
+  def apply: Int = {
+    curStateCounter = curStateCounter + 1
+    curStateCounter
   }
+}
+
+case class CFGAdjacent(label: Label, to: CFGVertex)
+
+case class CFG(start: CFGVertex, 
+    transitions: Map[CFGVertex,Set[CFGAdjacent]],                  // transition relation 
+    parent: Map[CFGVertex,Set[CFGAdjacent]],                       // parent relation 
+    predicates: Map[CFGVertex,List[(Expression,List[Int])]],       // predicates defined at each program point. The order of the predicates is important
+    variables: Map[CFGVertex,Set[Variable]],                       // variables defined at each program point 
+    formulas: Map[(CFGVertex,CFGVertex),Expression],               // formula corresponding to a label in the control flow graph 
+    freshVars: Map[(CFGVertex,CFGVertex),Set[Variable]],           // set of fresh variables corresponding to a label in the control flow graph 
+    sobject: Option[Sobject],
+    asserts: Map[CFGVertex, Expression]) {                                    // the AST of the original Scala program (if any)
+  def update(start: CFGVertex = start,
+             transitions: Map[CFGVertex,Set[CFGAdjacent]]            = transitions,
+             parent: Map[CFGVertex,Set[CFGAdjacent]]                 = parent,
+             predicates: Map[CFGVertex,List[(Expression,List[Int])]] = predicates,
+             variables: Map[CFGVertex,Set[Variable]]                 = variables,
+             formulas: Map[(CFGVertex,CFGVertex),Expression]         = formulas,
+             freshVars: Map[(CFGVertex,CFGVertex),Set[Variable]]     = freshVars,
+             sobject: Option[Sobject]                                = sobject,
+             asserts: Map[CFGVertex, Expression]                     = asserts): CFG =
+  CFG(start,transitions,parent,predicates,variables,formulas,freshVars,sobject,asserts)
+  /**
+   * gets a formula between two CFG vertices
+   * replaces the variables which are supposed to be fresh with fresh variables in each call 
+   */
+  import lazabs.utils.Manip._
+  def getFormula(start: CFGVertex, end: CFGVertex, label: Label): Expression = this.formulas.get(start,end) match {
+    case Some (af) =>
+      val fvs = this.freshVars.getOrElse((start,end),List())
+      fvs.foldLeft(af)((a,b) => substitute(a,Map(b -> freshVariable(b.stype))))
+    case None =>
+      val vars = if(end.getId == start.getId) this.variables.getOrElse(start, Set()) else this.variables.getOrElse(start, Set()) // Scala programs with global vars
+      transFormula(label,vars)._1
+  }
+  def allVariables = variables.values.fold(Set.empty)(_.union(_)).map(_.name)
 }
