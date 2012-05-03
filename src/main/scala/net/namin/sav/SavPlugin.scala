@@ -166,12 +166,17 @@ trait Sav {
 
     val absInFile = false
 
+    val filename = (classContract match {
+      case None => unit.toString.replace(".scala", "")
+      case Some(c) => c.name
+    }) + "-" + t.name
+
     if (verbose) println("verifying " + t.name + "...")
     val cfgBuilder = new DefCFGBuilder
     cfgBuilder.build(t) match {
       case None => println("Error: Could not build CFG for " + t.name)
       case Some((cfg, loops)) =>
-        if (drawCfgs) DrawGraph(cfg.transitions.toList, cfg.predicates, absInFile, None)
+        if (drawCfgs) DrawGraph("cfg-" + filename, cfg.transitions.toList, cfg.predicates, absInFile, None)
         val vcgs = VCG(cfg)
         var verified = true
         if (vcgs != null) {
@@ -202,7 +207,7 @@ trait Sav {
           val rTree = if (!interpolate) MakeRTree(cfg, loops, spuriousness, searchMethod, log)
                       else MakeRTreeInterpol(cfg, loops, searchMethod, babarew, dynamicAccelerate, underApproximate, log)
 
-          if (drawReachs) DrawGraph(rTree, absInFile)
+          if (drawReachs) DrawGraph("reach-" + filename, rTree, absInFile)
         }
     }
   }

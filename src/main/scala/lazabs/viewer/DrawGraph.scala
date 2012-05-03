@@ -21,9 +21,9 @@ object DrawGraph {
   /**
    * showing a transition system
    */
-  def show(transitions: String, ls: Map[String,String]): Unit = { 
+  def show(filename: String, transitions: String, ls: Map[String,String]): Unit = {
     val runTime = Runtime.getRuntime   
-    val dotOutput = new java.io.FileWriter(dotFileName + currentId + ".dot")
+    val dotOutput = new java.io.FileWriter(filename + ".dot")
     dotOutput.write( "digraph lazabs {\n")
     dotOutput.write( transitions)
     if(!ls.isEmpty) dotOutput.write( (ls.toList.map { case (x,y) =>
@@ -32,15 +32,15 @@ object DrawGraph {
         else (x + "[label=\"" + y + "\"];\n")}).reduceLeft[String](_+_) )               
     dotOutput.write( "}")
     dotOutput.close
-    var proc = runTime.exec( "dot -Tpng " + "DotOutput" + currentId + ".dot" + " -o graph" + currentId + ".png" )
+    var proc = runTime.exec( "dot -Tpng " + filename + ".dot" + " -o " + filename + ".png" )
     proc.waitFor
-    proc = runTime.exec( "eog graph" + currentId + ".png")
-    proc.waitFor
+    //proc = runTime.exec( "eog graph" + currentId + ".png")
+    //proc.waitFor
     currentId = currentId + 1
   }
   
   var ver_num = 0
-  def apply(ts: List[(CFGVertex,Set[CFGAdjacent])], predMap: Map[CFGVertex,List[(Expression,List[Int])]],absInFile: Boolean,ntsNames: Option[Map[Int,String]]): Unit = {
+  def apply(filename: String, ts: List[(CFGVertex,Set[CFGAdjacent])], predMap: Map[CFGVertex,List[(Expression,List[Int])]],absInFile: Boolean,ntsNames: Option[Map[Int,String]]): Unit = {
     val predOutput = new java.io.FileWriter(predFileName)
     labelInformation = List[String]()
     this.predMap = predMap    
@@ -56,13 +56,13 @@ object DrawGraph {
         absOutput.write(labelInformation.mkString("\n"))
         absOutput.close
       }
-      show(transitions, labels)
+      show(filename, transitions, labels)
       labels = Map()
       ver_num = 0
     }
   }
   
-  def apply(t: RTree, b: Boolean): Unit = {
+  def apply(filename: String, t: RTree, b: Boolean): Unit = {
     val dot = toDotRTree(t,b)
     if(b && absInformation.size != 0) {
       absOutput = new java.io.FileWriter(absFileName + currentId + ".txt")
@@ -72,7 +72,7 @@ object DrawGraph {
     }
     if (!dot.isEmpty) {
       val transitions = dot.map(x => x.toString).reduceLeft(_+_)
-      show( transitions, labels)
+      show(filename, transitions, labels)
       labels = Map()
     }
   }
