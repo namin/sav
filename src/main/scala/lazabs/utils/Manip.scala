@@ -11,17 +11,17 @@ import lazabs.types._
  */
 object Manip {
   /*
-   * eliminate common conjuncts
+   * eliminate common disjuncts
    */
-  def simplifyConjuncts(e: Expression): Expression = {
+  def simplifyDisjuncts(e: Expression): Expression = {
     def collect(e: Expression): Set[Expression] = {
       e match {
-        case Conjunction(lhs, rhs) => collect(lhs) union collect(rhs)
+        case Disjunction(lhs, rhs) => collect(lhs) union collect(rhs)
         case _ => Set(e)
       }
     }
-    val conjuncts = collect(e)
-    shortCircuit(conjuncts.fold(BoolConst(true))(Conjunction(_, _)))
+    val disjuncts = collect(e)
+    shortCircuit(disjuncts.fold(BoolConst(false))(Disjunction(_, _)))
   }
 
   /**
