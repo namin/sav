@@ -588,11 +588,17 @@ trait Sav {
         case If(cond, thenp, elsep) =>
           val from = next
           val conde = exprIfOk(cond)
-          conde.foreach(e => addEdge(Assume(e)))
+          conde match {
+            case None => addEdge(Assume(BoolConst(true)))
+            case Some(e) => addEdge(Assume(e))
+          }
           traverse(thenp)
           val end = next
           next = from
-          conde.foreach(e => addEdge(Assume(shortCircuit(Not(e)))))
+          conde match {
+            case None => addEdge(Assume(BoolConst(true)))
+            case Some(e) => addEdge(Assume(shortCircuit(Not(e))))
+          }
           traverse(elsep)
           jumpTo(end)
         case Assign(Ident(name), rhs) if variables.contains(name.decode) =>
