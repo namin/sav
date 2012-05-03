@@ -83,11 +83,11 @@ object VCG {
         for ((root, formula) <- p) {
           m.get(root) match {
             case None => m += (root -> formula)
-            case Some(mFormula) => m += (root -> Conjunction(mFormula, formula))
+            case Some(mFormula) => m += (root -> Disjunction(mFormula, formula))
           }
         }
       }
-      m = m.mapValues(Manip.simplifyConjuncts)
+      m = m.mapValues(Manip.simplifyDisjuncts)
       
       // mark as processed
       processed += v
