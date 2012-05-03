@@ -29,8 +29,8 @@ object ScalaPrinter {
       case "if" => "if( " + this(e1) + ")" + this(e2)
       case _ => "(" + this(e1) + " " + op.st + " " + this(e2) + ")"
     }
-    //case lazabs.nts.NTSCall(callee, actualParameters, returnVars, havoc) => // added just for NTS files
-    //  "NTSCall(" + actualParameters.map(apply).mkString("(", ",", ")") + " : " + returnVars.map(apply).mkString(",") 
+    case lazabs.nts.NTSCall(callee, actualParameters, returnVars, havoc) => // added just for NTS files
+      "NTSCall(" + actualParameters.map(apply).mkString("(", ",", ")") + " : " + returnVars.map(apply).mkString(",") 
     case Variable(name,_) if(name.startsWith("sc_")) => name.drop(3)
     case Variable(name,_) => name
     case NumericalConst(num) => num.toString

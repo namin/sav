@@ -148,7 +148,7 @@ object AccelerationRule extends CFGTransformer {
     val selfLoop = cfg.transitions.map(e => (e._1,e._2.filter(_.to == e._1))).find(_._2.size != 0)
     if(!selfLoop.isDefined) return None
     val (selfLoopVertex,selfLoopAdjs) = selfLoop.get
-    val aExpr: Expression = /*lazabs.nts.FlataWrapper.accelerate(label2lists(selfLoopAdjs.head.label),lazabs.nts.AccelerationStrategy.PRECISE)*/ (None: Option[Expression]) match {
+    val aExpr: Expression = lazabs.nts.FlataWrapper.accelerate(label2lists(selfLoopAdjs.head.label),lazabs.nts.AccelerationStrategy.PRECISE) match {
       case Some(v: Expression) =>
         println("static acceleration")
         v
