@@ -495,16 +495,7 @@ trait Sav {
     override def traverse(t: Tree) { t match {
         case DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
           for (vparams <- vparamss; v <- vparams) considerValDef(v)
-          if (tpt.toString == "Unit") {
-            traverse(rhs)
-          } else {
-            val (stats, r) = rhs match {
-              case Block(stats, r) => (stats, r)
-              case _ => (Nil, rhs)
-            }
-            traverseTrees(stats)
-            exprIfOk(r); ()
-          }
+          traverse(rhs)
         case Block(stats, expr) => super.traverse(t)
         case v @ ValDef(mods, name, tpt, rhs)=>
           if (considerValDef(v)) {
