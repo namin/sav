@@ -26,8 +26,11 @@ class SavPlugin(val global: Global) extends Plugin {
     for (option <- options) {
       option match {
         case "verbose" => Component.verbose = true
+        case "eldarica" => Component.eldarica = true
+        case "interpolate" => Component.interpolate = true
         case "princess" => Prover.setProver(TheoremProver.PRINCESS)
         case "draw-cfgs" => Component.drawCfgs = true
+        case "draw-reachs" => Component.drawReachs = true
         case _ => error("Option not understood: "+option)
       }
     }
@@ -35,13 +38,19 @@ class SavPlugin(val global: Global) extends Plugin {
 
   override val optionsHelp: Option[String] = Some(
     "  -P:sav:verbose             Verbose mode\n" +
-    "  -P:sav:z3                  Rely on the theorem prover Princess instead of Z3\n" +
-    "  -P:sav:draw-cfgs           Draw CFGs")
+    "  -P:sav:eldarica            Follow-up with Eldarica magic\n" +
+    "  -P:sav:interpolate         Use interpolation in Eldarica magic\n" +
+    "  -P:sav:princess            Rely on the theorem prover Princess instead of Z3\n" +
+    "  -P:sav:draw-cfgs           Draw CFGs\n" +
+    "  -P:sav:draw-reachs         Draw Reachability trees\n")
 
   private object Component extends PluginComponent {
     val global: SavPlugin.this.global.type = SavPlugin.this.global
     var verbose = false
+    var eldarica = false
+    var interpolate = false
     var drawCfgs = false
+    var drawReachs = false
     override val runsAfter = List[String]("cleanup")
     val phaseName = SavPlugin.this.name
     def newPhase(_prev: Phase) = new SavPhase(_prev)    
@@ -52,7 +61,10 @@ class SavPlugin(val global: Global) extends Plugin {
         (new Sav {
           override val global = Component.global
           override val verbose = Component.verbose
+          override val eldarica = Component.eldarica
+          override val interpolate = Component.interpolate
           override val drawCfgs = Component.drawCfgs
+          override val drawReachs = Component.drawReachs
         }).go(unit)
         println("")
     }}
@@ -63,7 +75,10 @@ trait Sav {
   val global: Global
   import global._
   val verbose: Boolean
+  val eldarica: Boolean
+  val interpolate: Boolean
   val drawCfgs: Boolean
+  val drawReachs: Boolean
 
   def go(unit: CompilationUnit) = {
     val classCollector = new ForeachVerifyClassTraverser(collectClassDef)
@@ -139,31 +154,46 @@ trait Sav {
     }
   }
   def analyzeDef(unit: CompilationUnit)(t: DefDef) {
+    val absInFile = false
+
     if (verbose) println("verifying " + t.name + "...")
     val cfgBuilder = new DefCFGBuilder
     cfgBuilder.build(t) match {
       case None => println("Error: Could not build CFG for " + t.name)
-      case Some(cfg) =>
-//        if (drawCfgs) {
-//          val name = (classContract match {
-//            case None => unit.toString.replace(".scala", "")
-//            case Some(c) => c.name
-//          }) + "-" + t.name
-//          DrawGraph(cfg, name)
-//        }
+      case Some((cfg, loops)) =>
+        if (drawCfgs) DrawGraph(cfg.transitions.toList, cfg.predicates, absInFile, None)
         val vcgs = VCG(cfg)
         var verified = true
-        vcgs foreach { e =>
-          if (verbose) print("  ")
-          Prover.isSatisfiable(Not(e)) match {
-            case Some(true) => {if (verbose) print("Invalid"); verified = false}
-            case Some(false) => if (verbose) print("Valid")
-            case None => {if (verbose) print("Unknown"); verified = false}
+        if (vcgs != null) {
+          vcgs foreach { e =>
+            if (verbose) print("  ")
+            Prover.isSatisfiable(Not(e)) match {
+              case Some(true) => {if (verbose) print("Invalid"); verified = false}
+              case Some(false) => if (verbose) print("Valid")
+              case None => {if (verbose) print("Unknown"); verified = false}
+            }
+            if (verbose) println(": " + ScalaPrinter(e))
           }
-          if (verbose) println(": " + ScalaPrinter(e))
+          if (verified) println("successfully verified " + t.name + " with " + cfgBuilder.n_warnings + " warning(s)")
+          else if (!eldarica) println("failed to verify " + t.name)
+        } else {
+          println("CFG is not sufficiently annotated!")
+          verified = false
         }
-        if (verified) println("successfully verified " + t.name + " with " + cfgBuilder.n_warnings + " warning(s)")
-        else println("failed to verify " + t.name)
+        import lazabs.art._
+        if (!verified || eldarica || drawReachs) {
+          val spuriousness = true
+          val searchMethod = SearchMethod.DFS
+          val dynamicAccelerate = false
+          val underApproximate = false
+          val babarew = false
+          val log = verbose
+
+          val rTree = if (!interpolate) MakeRTree(cfg, loops, spuriousness, searchMethod, log)
+                      else MakeRTreeInterpol(cfg, loops, searchMethod, babarew, dynamicAccelerate, underApproximate, log)
+
+          if (drawReachs) DrawGraph(rTree, absInFile)
+        }
     }
   }
 
@@ -337,8 +367,9 @@ trait Sav {
   }
 
   class DefCFGBuilder extends VerifyDefTraverser {
+    private var sufficient = true
     private var labels = Map[Name,(CFGVertex,CFGVertex)]()
-    private val errorVertex = newVertex
+    private val errorVertex = CFGVertex(-1)
     private var next = newVertex
     private var lastAssertFrom = errorVertex
     private var lastAssertTo = errorVertex
@@ -382,7 +413,11 @@ trait Sav {
     }
 
     private def addWhileLabel(n: Name) = {
-      assert(lastAssertFrom != errorVertex && lastAssertTo == next, "while loop must be preceded by assert!")
+      if (!(lastAssertFrom != errorVertex && lastAssertTo == next)) {
+        if (sufficient && !eldarica) println("Pro tip: While loop must be preceded by assert for CFG to be sufficiently annotated.")
+        sufficient = false
+        addAssert(BoolConst(true))
+      }
       labels += (n -> (lastAssertFrom, lastAssertTo))
       lastAssertFrom = errorVertex
       lastAssertTo = errorVertex
@@ -467,8 +502,9 @@ trait Sav {
         val vertices = transitions.map(_._1) union transitions.map(_._3)
         val forward = transitions.groupBy(_._1).map({ case(from, s) => (from -> s.map({ case(_, label, to) => CFGAdjacent(label, to) }))})
         val backward = transitions.groupBy(_._3).map({ case(to, s) => (to -> s.map({ case (from, label, _) => CFGAdjacent(label, from) }))})
-        val cfg = CFG(start, forward, backward, Map.empty, Map(start -> variables.map(Variable(_)).toSet), Map.empty, Map.empty, None, asserts)
-        Some(cfg)
+        val varMap = vertices.map(v => v -> variables.map(Variable(_)).toSet).toMap
+        val cfg = CFG(start, forward, backward, Map.empty, varMap, Map.empty, Map.empty, None, asserts)
+        Some((cfg, labels.values.toList.map(_._2)))
       } else None
     }
  

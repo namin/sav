@@ -7,7 +7,8 @@ import lazabs.utils.Manip
 object VCG {
 
   /*
-   * Returns a set of verification conditions that imply the correctness of the annotations in the given CFG
+   * Returns a set of verification conditions that imply the correctness of the annotations in the given CFG,
+   * or null if the CFG is not sufficiently annotated.
    */
   def apply(cfg: CFG) : Set[Expression] = {
     var result = Set[Expression]()
@@ -95,9 +96,8 @@ object VCG {
       checkChildren(v, m)
     }
     
-    assert(notReady.isEmpty, "The CFG is not sufficiently annotated.")
-    
-    result
+    if (notReady.isEmpty) result
+    else null // The CFG is not sufficiently annotated.
   }
 
   private def createParentSets(cfg: CFG): Map[CFGVertex, Set[(CFGVertex, CFGAdjacent)]] = {

@@ -44,8 +44,8 @@ case class CFG(start: CFGVertex,
     variables: Map[CFGVertex,Set[Variable]],                       // variables defined at each program point 
     formulas: Map[(CFGVertex,CFGVertex),Expression],               // formula corresponding to a label in the control flow graph 
     freshVars: Map[(CFGVertex,CFGVertex),Set[Variable]],           // set of fresh variables corresponding to a label in the control flow graph 
-    sobject: Option[Sobject],
-    asserts: Map[CFGVertex, Expression]) {                                    // the AST of the original Scala program (if any)
+    sobject: Option[Sobject],                                      // the AST of the original Scala program (if any)
+    asserts: Map[CFGVertex, Expression]) {
   def update(start: CFGVertex = start,
              transitions: Map[CFGVertex,Set[CFGAdjacent]]            = transitions,
              parent: Map[CFGVertex,Set[CFGAdjacent]]                 = parent,
