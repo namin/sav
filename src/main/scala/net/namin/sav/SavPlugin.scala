@@ -171,7 +171,7 @@ trait Sav {
       case Some(c) => c.name
     }) + "-" + t.name
 
-    if (verbose) println("verifying " + t.name + "...")
+    if (verbose || eldarica) println("verifying " + t.name + "...")
     val cfgBuilder = new DefCFGBuilder
     cfgBuilder.build(t) match {
       case None => println("Error: Could not build CFG for " + t.name)
