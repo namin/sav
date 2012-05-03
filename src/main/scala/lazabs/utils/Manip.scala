@@ -349,7 +349,11 @@ object Manip {
     case Universal(v, qe) => Universal(v, prime(qe)).stype(e.stype)
     case _ => e
   }
-  
+
+  def reset() {
+    curVarID = -1
+  }
+
   private var curVarID = -1
   def freshVariable(t: Type): Variable = {
       curVarID = curVarID + 1

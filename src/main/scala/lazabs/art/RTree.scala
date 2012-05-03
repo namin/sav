@@ -28,6 +28,15 @@ class RTree{
 }
 
 object RTreeMethods {  
+  def reset() {
+    timeStart = 0
+    timeFinish = 0
+    started = false
+    curNodeID = -1
+    MakeRTree.reset()
+    MakeRTreeInterpol.reset()
+  }
+
   /**
    * multi-map subtraction of two node hashes
    */

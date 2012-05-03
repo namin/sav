@@ -12,6 +12,12 @@ import nts.parser._
 
 
 object NtsWrapper {
+  def reset() {
+    stateIdMap = collection.mutable.Map.empty
+    stateNameMap = collection.mutable.Map.empty
+    ntsResult = null
+  }
+
   /**
    * map from a control state in a subsystem to ad Id
    */

@@ -154,6 +154,14 @@ trait Sav {
     }
   }
   def analyzeDef(unit: CompilationUnit)(t: DefDef) {
+    Prover.reset()
+    lazabs.art.RTreeMethods.reset()
+    lazabs.utils.Manip.reset()
+    lazabs.utils.Inline.reset()
+    lazabs.nts.NtsCFG.reset()
+    lazabs.nts.NtsWrapper.reset()
+    FreshCFGStateId.reset()
+
     val absInFile = false
 
     if (verbose) println("verifying " + t.name + "...")

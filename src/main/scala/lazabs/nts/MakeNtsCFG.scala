@@ -5,6 +5,16 @@ import lazabs.cfg._
 
 
 object NtsCFG {
+  def reset() {
+    nts = Nts(List(),List[NtsSubsystem]())
+    adjMap = Map[CFGVertex,Set[CFGAdjacent]]().empty
+    varsMap = Map[CFGVertex,Set[Variable]]().empty
+    formulas = Map[(CFGVertex,CFGVertex),Expression]().empty
+    predicates = Map[CFGVertex,List[(Expression,List[Int])]]().empty
+    allVariables = List[Variable]()
+    inlineCount = 0
+  }
+
   var nts:Nts = Nts(List(),List[NtsSubsystem]()) 
   var adjMap = Map[CFGVertex,Set[CFGAdjacent]]().empty
   var varsMap = Map[CFGVertex,Set[Variable]]().empty

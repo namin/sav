@@ -11,6 +11,14 @@ object TheoremProver extends Enumeration {
 object Prover {
   import lazabs.prover.TheoremProver._
   private var prover: TheoremProver = Z3
+
+  def reset() {
+    theoremProverConsultation = 0
+    interpolationConsultation = 0
+    hitCount = 0
+    cache.clear()
+  }
+
   var theoremProverConsultation = 0
   var interpolationConsultation = 0
   def getTheoremProverConsultation = theoremProverConsultation  

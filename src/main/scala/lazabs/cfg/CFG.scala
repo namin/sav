@@ -28,6 +28,9 @@ case class CFGVertex(id: Int) {
 }
 
 object FreshCFGStateId {
+  def reset() = {
+    curStateCounter = -1
+  }
   private var curStateCounter = -1
   def apply: Int = {
     curStateCounter = curStateCounter + 1

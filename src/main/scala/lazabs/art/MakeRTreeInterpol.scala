@@ -13,6 +13,23 @@ import lazabs.nts._
 
 
 object MakeRTreeInterpol {
+  def reset() {
+    rTree = new RTree
+    queue = List()
+    cfg = CFG(CFGVertex(-1),Map.empty,Map.empty,Map.empty,Map.empty,Map.empty,Map.empty,None,Map.empty)
+    search = SearchMethod.DFS
+    log = false
+    accelerate = false
+    underApproximate = false
+    bapaRewrite = false
+    init = List()
+    reusableRoots = Set()
+    predMap = collection.mutable.Map[CFGVertex,List[(Expression,List[Int])]]().empty
+    hasBug = false
+    cacheReuse = 0
+    nodeHash = collection.mutable.Map[CFGVertex,List[RNode]]().empty
+  }
+
   var rTree: RTree = new RTree
   var queue: List[RNode] = List()
   var cfg = CFG(CFGVertex(-1),Map.empty,Map.empty,Map.empty,Map.empty,Map.empty,Map.empty,None,Map.empty)

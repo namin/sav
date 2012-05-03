@@ -4,6 +4,14 @@ import lazabs.ast.ASTree._
 import lazabs.types._
 
 object Inline {
+  def reset() {
+    funcs = Map()
+    actorInstance2ClassName = Map()
+    classFields = List()
+    isActorQueues = false
+    assumptions = List()
+    curNumber = -1
+  }
     /**
    * removes unnecessary multi-level blocking of the instructions
    * e.g., Block(X = 5, Block(X = 7, X = 8)) is converted to Block(X = 5, X = 7, X = 8) 

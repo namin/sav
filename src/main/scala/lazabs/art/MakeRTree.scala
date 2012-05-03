@@ -10,6 +10,17 @@ import lazabs.prover.Prover._
 
 
 object MakeRTree {
+  def reset() {
+    rTree = new RTree
+    cfg = CFG(CFGVertex(-1),Map.empty,Map.empty,Map.empty,Map.empty,Map.empty,Map.empty,None,Map.empty)
+    search = SearchMethod.DFS
+    shuffle = false
+    spuriousness = false
+    init = List()
+    time = 0
+    nodeHash.clear()
+  }
+
   var rTree: RTree = new RTree
   var cfg = CFG(CFGVertex(-1),Map.empty,Map.empty,Map.empty,Map.empty,Map.empty,Map.empty,None,Map.empty)
   
