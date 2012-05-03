@@ -156,14 +156,19 @@ trait Sav {
         }
         val vcgs = VCG(cfg)
         var verified = true
-        vcgs foreach { e =>
-          if (verbose) print("  ")
-          Prover.isSatisfiable(Not(e)) match {
-            case Some(true) => {if (verbose) print("Invalid"); verified = false}
-            case Some(false) => if (verbose) print("Valid")
-            case None => {if (verbose) print("Unknown"); verified = false}
+        if (vcgs != null) {
+          vcgs foreach { e =>
+            if (verbose) print("  ")
+            Prover.isSatisfiable(Not(e)) match {
+              case Some(true) => {if (verbose) print("Invalid"); verified = false}
+              case Some(false) => if (verbose) print("Valid")
+              case None => {if (verbose) print("Unknown"); verified = false}
+            }
+            if (verbose) println(": " + ScalaPrinter(e))
           }
-          if (verbose) println(": " + ScalaPrinter(e))
+        } else {
+          println("CFG is not sufficiently annotated!")
+          verified = false
         }
         if (verified) println("successfully verified " + t.name + " with " + cfgBuilder.n_warnings + " warning(s)")
         else println("failed to verify " + t.name)
@@ -340,6 +345,7 @@ trait Sav {
   }
 
   class DefCFGBuilder extends VerifyDefTraverser {
+    private var sufficient = true
     private val cfg = new CFG()
     override protected val variables = cfg.variables
     private var labels = Map[Name,(Vertex,Vertex)]()
@@ -382,7 +388,11 @@ trait Sav {
     }
 
     private def addWhileLabel(n: Name) = {
-      assert(lastAssertFrom != cfg.error && lastAssertTo == next, "while loop must be preceded by assert!")
+      if (!(lastAssertFrom != cfg.error && lastAssertTo == next)) {
+        if (sufficient) println("Pro tip: While loop must be preceded by assert for CFG to be sufficiently annotated.")
+        sufficient = false
+        addAssert(BoolConst(true))
+      }
       labels += (n -> (lastAssertFrom, lastAssertTo))
       lastAssertFrom = cfg.error
       lastAssertTo = cfg.error
