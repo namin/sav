@@ -7,3 +7,9 @@ scalac -Xplugin:target/sav-assembly-0.1-SNAPSHOT.jar $SCALAC_OPTIONS src/main/sc
 
 echo "=== These examples should all (ideally) fail to verify or (at worst) verify with warnings ==="
 scalac -Xplugin:target/sav-assembly-0.1-SNAPSHOT.jar $SCALAC_OPTIONS src/main/scala/net/namin/sav/lib.scala src/main/scala/net/namin/sav/annotation/verify.scala test/inv*.scala -d out
+
+echo "=== These examples are ok but might not be sufficiently annotated ==="
+scalac -Xplugin:target/sav-assembly-0.1-SNAPSHOT.jar $SCALAC_OPTIONS src/main/scala/net/namin/sav/lib.scala src/main/scala/net/namin/sav/annotation/verify.scala test/ok*.scala -d out
+
+echo "=== These examples are wrong ==="
+scalac -Xplugin:target/sav-assembly-0.1-SNAPSHOT.jar $SCALAC_OPTIONS src/main/scala/net/namin/sav/lib.scala src/main/scala/net/namin/sav/annotation/verify.scala test/bad*.scala -d out
