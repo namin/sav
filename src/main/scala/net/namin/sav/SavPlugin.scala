@@ -501,10 +501,19 @@ trait Sav {
       if (ok) {
         val vertices = transitions.map(_._1) union transitions.map(_._3)
         val forward = transitions.groupBy(_._1).map({ case(from, s) => (from -> s.map({ case(_, label, to) => CFGAdjacent(label, to) }))})
-        val backward = transitions.groupBy(_._3).map({ case(to, s) => (to -> s.map({ case (from, label, _) => CFGAdjacent(label, from) }))})
-        val varMap = vertices.map(v => v -> variables.map(Variable(_)).toSet).toMap
-        val cfg = CFG(start, forward, backward, Map.empty, varMap, Map.empty, Map.empty, None, asserts)
-        Some((cfg, labels.values.toList.map(_._2)))
+        val backward = MakeCFG.makeParentMap(forward)
+        val vars = variables.map(Variable(_)).toSet
+        val varMap = vertices.map(v => v -> vars).toMap
+        var predMap= vertices.map({ v =>
+          var lst: List[(Expression,List[Int])] = List((Variable("sc_LBE",None),List[Int]()))
+          if (v.id == -1) lst = (BoolConst(false),List()) :: lst
+          asserts.get(v).foreach(e => lst = (e,List()) :: lst)
+          v -> lst
+        }).toMap
+        val loops = labels.values.toList.map(_._1)
+
+        val cfg = CFG(start, forward, backward, predMap, varMap, Map.empty, Map.empty, None, asserts)
+        Some((cfg, loops))
       } else None
     }
  
