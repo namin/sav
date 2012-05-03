@@ -196,7 +196,7 @@ trait Sav {
           verified = false
         }
         import lazabs.art._
-        if (!verified || eldarica || drawReachs) {
+        if (eldarica || drawReachs) {
           val spuriousness = true
           val searchMethod = SearchMethod.DFS
           val dynamicAccelerate = false
