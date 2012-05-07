@@ -516,8 +516,12 @@ trait Sav {
         val vars = variables.map(Variable(_)).toSet
         val varMap = vertices.map(v => v -> vars).toMap
         val loops = labels.values.toList.map(_._1)
+        val predMap = vertices.map(v => v -> (
+          if (v == errorVertex) List((BoolConst(false),List()), (Variable("sc_LBE"),List()))
+          else List((BoolConst(false),List()))
+        )).toMap
 
-        val cfg = CFG(start, forward, backward, Map.empty, varMap, Map.empty, Map.empty, None, asserts)
+        val cfg = CFG(start, forward, backward, predMap, varMap, Map.empty, Map.empty, None, asserts)
         Some((cfg, loops))
       } else None
     }

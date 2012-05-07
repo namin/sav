@@ -24,10 +24,10 @@ object MakeRTreeInterpol {
     bapaRewrite = false
     init = List()
     reusableRoots = Set()
-    predMap = collection.mutable.Map[CFGVertex,List[(Expression,List[Int])]]().empty
+    predMap = collection.mutable.Map().empty
     hasBug = false
     cacheReuse = 0
-    nodeHash = collection.mutable.Map[CFGVertex,List[RNode]]().empty
+    nodeHash = collection.mutable.Map().empty
   }
 
   var rTree: RTree = new RTree
@@ -129,47 +129,47 @@ object MakeRTreeInterpol {
    * adds a subtree to the current reachability tree  
    */
   def addSubtree(root: RNode): Unit = {
-    if(alreadyExplored(CFGVertex(root.getCfgId), nodeHash, root.getAbstraction).isDefined && !rTree.getBlockedNodes.contains(root)) {
-      val explored = RNode(freshNodeID, root.getCfgId, root.getAbstraction)
-      rTree.setExploredNodes(rTree.getExploredNodes + explored)
-      rTree.getParent.get(root) match {
-        case Some(papa) =>
-          rTree.transitions += (papa._1 -> (rTree.transitions.getOrElse(papa._1, Set.empty) ++ Set(RAdjacent(papa._2,explored))))
-          rTree.transitions += (papa._1 -> (rTree.transitions.getOrElse(papa._1, Set.empty) - (RAdjacent(papa._2,root))))
-          rTree.parent += (explored -> (papa._1,papa._2))          
-        case None =>
-      }
-      pruneChildren(root)
-      rTree.setTransitions(rTree.getTransitions - root)
-      rTree.setParent(rTree.getParent - root)
-    } else {
-      nodeHash += (CFGVertex(root.getCfgId) -> (nodeHash.getOrElse(CFGVertex(root.getCfgId), List()) ::: List(root)))
-      cacheReuse += 1
-      rTree.getTransitions.get(root) match {
-        case Some(adjs) =>
-          if(adjs.find(x => rTree.getExploredNodes.contains(x.to)).isDefined) {
-            val exploredAdjs = adjs.filter(adj => rTree.getExploredNodes.contains(adj.to))
-            val unexploredAdjs = adjs.filterNot(adj => rTree.getExploredNodes.contains(adj.to))
-            rTree.transitions += (root -> (rTree.transitions.getOrElse(root, Set.empty) -- exploredAdjs))
-            exploredAdjs.map(_.to).foreach{ex =>
-              rTree.setExploredNodes(rTree.getExploredNodes - ex)
-              rTree.parent -= ex
-            }
-            unexploredAdjs.map(_.to).map(addSubtree)   
-            queue +:= root
-          } else
-            adjs.map(adj => addSubtree(adj.to))
-        case None =>
-          if(!rTree.getBlockedNodes.contains(root) && !rTree.getExploredNodes.contains(root))
-            queue :+= root
-      }
+    alreadyExplored(CFGVertex(root.getCfgId), nodeHash, root.getAbstraction) match {
+      case Some(weaker) if(!rTree.getBlockedNodes.contains(root)) =>
+        val explored = RNode(freshNodeID, root.getCfgId, root.getAbstraction)
+        rTree.subsumptionRelation += (weaker -> (rTree.subsumptionRelation.getOrElse(weaker,Set()) + explored))
+        rTree.getParent.get(root) match {
+          case Some(papa) =>
+            rTree.transitions = (rTree.transitions + (papa._1 -> (rTree.transitions.getOrElse(papa._1, Set.empty) + RAdjacent(papa._2,explored) - RAdjacent(papa._2,root)))).filterNot(_._2.size == 0)
+            rTree.parent += (explored -> (papa._1,papa._2))          
+          case None =>
+        }
+        pruneChildren(root)
+        rTree.setTransitions(rTree.getTransitions - root)
+        rTree.setParent(rTree.getParent - root)        
+      case _ =>
+        nodeHash += (CFGVertex(root.getCfgId) -> (nodeHash.getOrElse(CFGVertex(root.getCfgId), Set()) + root))
+        cacheReuse += 1
+        rTree.getTransitions.get(root) match {
+          case Some(adjs) =>
+            val cacheSubsumedAdjs = adjs.filter(adj => rTree.cacheSubsumedNodes.exists(_ == adj.to))
+            if(cacheSubsumedAdjs.size != 0) {
+              val cacheUnsubsumedAdjs = adjs.filterNot(adj => rTree.cacheSubsumedNodes.exists(_ == adj.to))
+              rTree.transitions = (rTree.transitions + (root -> (rTree.transitions.getOrElse(root, Set.empty) -- cacheSubsumedAdjs))).filterNot(_._2.size == 0)
+              cacheSubsumedAdjs.map(_.to).foreach{cSub =>
+                rTree.cacheSubsumedNodes -= cSub
+                rTree.parent -= cSub
+              }
+              cacheUnsubsumedAdjs.map(_.to).map(addSubtree)
+              queue +:= root
+            } else
+              adjs.map(adj => addSubtree(adj.to))
+          case None =>
+            if(!rTree.getBlockedNodes.contains(root) && !rTree.cacheSubsumedNodes(root))
+              queue :+= root
+        }
     }
   }
   
   /**
    * the hash of nodes
    */
-  var nodeHash = collection.mutable.Map[CFGVertex,List[RNode]]().empty
+  var nodeHash = collection.mutable.Map[CFGVertex,Set[RNode]]().empty
   /**
    * Making a reachability tree for a given control flow graph
    */  
@@ -202,7 +202,7 @@ object MakeRTreeInterpol {
               var childNode: RNode = if(childPredSet.contains(BoolConst(false))) {
                 val blocked = RNode(freshNodeID, adj.to.id, childPredSet)
                 rTree.blockedNodes += blocked
-                nodeHash += (adj.to -> (nodeHash.getOrElse(adj.to, List()) ::: List(blocked)))
+                nodeHash += (adj.to -> (nodeHash.getOrElse(adj.to, Set()) + blocked))
                 blocked
               } else {
                 if(adj.to.id == -1) {
@@ -211,9 +211,9 @@ object MakeRTreeInterpol {
                   error
                 } else {
                   alreadyExplored(adj.to, nodeHash, childPredSet) match {
-                    case Some(weak) =>
+                    case Some(weaker) =>
                       val explored = RNode(freshNodeID, adj.to.id, childPredSet)
-                      rTree.exploredNodes += explored
+                      rTree.subsumptionRelation += (weaker -> (rTree.subsumptionRelation.getOrElse(weaker,Set()) + explored))
                       explored
                     case None =>
                       reusableRoots.find(rr => rr.getCfgId == adj.to.id && rr.getAbstraction == childPredSet) match {
@@ -223,10 +223,17 @@ object MakeRTreeInterpol {
                           reuse
                         case None =>
                           val unfinished = RNode(freshNodeID, adj.to.id, childPredSet)
-                          nodeHash += (adj.to -> (nodeHash.getOrElse(adj.to, List()) ::: List(unfinished)))
+                          nodeHash += (adj.to -> (nodeHash.getOrElse(adj.to, Set()) + unfinished))
                           val dups = queue.filter(x => x.getCfgId == adj.to.getId)   // there is already a node for the same CFG vertex in the queue
-                          if(dups.size != 0)
-                            dups.foreach(d => if(childPredSet.subsetOf(d.getAbstraction)) queue = queue.filterNot(_ == d))
+                          if(dups.size != 0) {
+                            dups.foreach{
+                              d => if(childPredSet.subsetOf(d.getAbstraction)) {
+                                queue = queue.filterNot(_ == d)
+                                rTree.subsumptionRelation += (unfinished -> (rTree.subsumptionRelation.getOrElse(unfinished,Set()) + d))
+                                nodeHash = (nodeHash + (adj.to -> (nodeHash.getOrElse(adj.to,Set()) - d))).filterNot(_._2.size == 0)
+                              }
+                            }
+                          }
                           queue :+= unfinished
                           unfinished
                       }
@@ -244,38 +251,65 @@ object MakeRTreeInterpol {
   }
   
   /**
-   * prunes the reachability tree from the p node
-   * The p node itself remains in the tree, every children from p there are removed
+   * Prunes the reachability tree from the prune node
+   * @post: Every children from prune are removed
+   * @invariant: Does not change the subsumption relation
    */
-  def pruneChildren(p: RNode): Unit = {
-    if(reusableRoots.contains(p)) 
+  def pruneChildren(prune: RNode): Unit = {
+    if(reusableRoots.contains(prune))
       return
-    nodeHash.get(CFGVertex(p.getCfgId)) match {
-      case Some(l) =>
-        val newValue = l.filterNot(_ == p)
-        nodeHash = (if(newValue.size == 0) (nodeHash - CFGVertex(p.getCfgId)) else nodeHash.updated(CFGVertex(p.getCfgId),newValue))
-      case _ =>        
-    }
-    rTree.setExploredNodes(rTree.getExploredNodes - p)
-    rTree.getTransitions.get(p) match {
+    rTree.getTransitions.get(prune) match {
       case Some(s) =>
-        rTree.setTransitions(rTree.getTransitions - p)         
+        rTree.setTransitions(rTree.getTransitions - prune)         
         s.foreach(ra => {
           queue = queue.filterNot(_ == ra.to)
           rTree.setParent(rTree.getParent - ra.to)
+          nodeHash = (nodeHash + (CFGVertex(ra.to.getCfgId) -> (nodeHash.getOrElse(CFGVertex(ra.to.getCfgId),Set()) - ra.to))).filterNot(_._2.size == 0)
           pruneChildren(ra.to)
         })
       case None =>
-        rTree.setBlockedNodes(rTree.getBlockedNodes - p)
-        rTree.setErrorNodes(rTree.getErrorNodes - p)
-    }        
-  }  
+        rTree.setBlockedNodes(rTree.getBlockedNodes - prune)
+        rTree.setErrorNodes(rTree.getErrorNodes - prune)
+    }
+  }
+  
+  /**
+   * Adjusts the subsumption relation after pruning
+   */
+  def adjustSubsumption(mainTreeNodes: Set[RNode], cacheNodes: Set[RNode]) {
+    // ############# marking the explored nodes in the cache nodes #############
+    rTree.getSubsumptionRelation.map(el => (el._1,el._2.filter(cacheNodes.contains))).values.foldLeft(Set[RNode]())(_++_).foreach {cSub =>
+      val os = RNode(freshNodeID, cSub.getCfgId, cSub.getAbstraction)
+      rTree.cacheSubsumedNodes += os
+      rTree.getParent.get(cSub) match {
+        case Some(papa) =>
+          rTree.transitions += (papa._1 -> (rTree.transitions.getOrElse(papa._1, Set.empty) + RAdjacent(papa._2,os) - (RAdjacent(papa._2,cSub))))
+          rTree.parent += (os -> (papa._1,papa._2))
+        case None =>
+      }
+      rTree.setTransitions(rTree.getTransitions - cSub)
+      rTree.setParent(rTree.getParent - cSub)
+    }
+    // ############# removing the explored nodes in the main tree #############
+    val mainPushBackNodes = rTree.getSubsumptionRelation.filter(el => !mainTreeNodes.contains(el._1)).map(el => (el._1,el._2.filter(mainTreeNodes.contains))).values.foldLeft(Set[RNode]())(_++_)
+    mainPushBackNodes.foreach {mSub =>
+      rTree.getParent.get(mSub) match {
+        case Some(papa) =>
+          rTree.transitions = (rTree.transitions + (papa._1 -> (rTree.transitions.getOrElse(papa._1, Set.empty) - (RAdjacent(papa._2,mSub))))).filterNot(_._2.size == 0)
+          if(!queue.contains(papa._1))
+            queue +:= papa._1
+        case None =>
+      }
+      rTree.setParent(rTree.getParent - mSub)
+    }
+    rTree.setSubsumptionRelation(rTree.getSubsumptionRelation.filter(el => mainTreeNodes.contains(el._1)).map(el => (el._1,el._2.filter(mainTreeNodes.contains))).filter(_._2.size != 0))
+  }
    
   /**
    * returns the roots of the directly connected subtree to the spurious path
    */
   def subtreesRoots(p: List[RNode]): Set[RNode] = p.map(rTree.getTransitions.get(_) match {
-    case Some(adjs) => adjs.filterNot(x => (p.contains(x.to) || (x.to.getCfgId == -1) || (rTree.getExploredNodes.contains(x.to)) || (rTree.getBlockedNodes.contains(x.to)))).map(_.to)
+    case Some(adjs) => adjs.filterNot(x => (p.contains(x.to) || (x.to.getCfgId == -1) || (rTree.getSubsumptionRelation.values.foldLeft(Set[RNode]())(_++_).exists(_ == x.to)) || (rTree.getBlockedNodes.contains(x.to)))).map(_.to)
     case None => Set()
   }).foldLeft[Set[RNode]](Set())(_++_)
   
@@ -290,7 +324,7 @@ object MakeRTreeInterpol {
       (Set(root) ++ rest.map(_._1).foldLeft[Set[RNode]](Set())(_ union _),
           (if(queue.contains(root)) Set(root) ++ rest.map(_._2).foldLeft[Set[RNode]](Set())(_ union _) else rest.map(_._2).foldLeft[Set[RNode]](Set())(_ union _)))
     case None =>
-      if(!rTree.getBlockedNodes.contains(root) && !rTree.getExploredNodes.contains(root)) 
+      if(!rTree.getBlockedNodes.contains(root) && !rTree.getSubsumptionRelation.values.foldLeft(Set[RNode]())(_++_).exists(_ == root))
         (Set(root),Set(root))
       else 
         (Set(root),Set())
@@ -382,7 +416,7 @@ object MakeRTreeInterpol {
     val loopId = if(getLoopIndex(repetitivePath) >= 0) repetitivePath(getLoopIndex(repetitivePath))._1.getId 
     // getting the formulas of a path. The last formula is between the last state in the path to the error state
     if(repetitivePath.head._1.getId == -1)  // there are global variables inside Scala input
-      rTree.transitions += (repetitivePath.head._1 -> (rTree.transitions.getOrElse(repetitivePath.head._1, Set.empty) ++ Set(RAdjacent(repetitivePath.head._2,repetitivePath.tail.head._1))))
+      rTree.transitions += (repetitivePath.head._1 -> (rTree.transitions.getOrElse(repetitivePath.head._1, Set.empty) + RAdjacent(repetitivePath.head._2,repetitivePath.tail.head._1)))
     val (formulas,e:Expression, precise: Boolean) = approximatePath(repetitivePath,OVER_APPROX)
     if(spur && getLoopIndex(repetitivePath) >= 0) {
       if(precise)
@@ -507,9 +541,12 @@ object MakeRTreeInterpol {
     val openNodesInSubtrees =
       (for ((_, s) <- reusableRootChildren.iterator; e <- s.iterator) yield e).toSet
     queue = queue.filterNot(openNodesInSubtrees.contains)  // removing the unfinished nodes
-    nodeHash = collection.mutable.Map().empty ++ nodeHash.mapValues(_ diff allNodesInSubtrees)
+    nodeHash = collection.mutable.Map().empty ++ nodeHash.mapValues(_ -- allNodesInSubtrees).filterNot(_._2.size == 0)
     // ************** end of caching **************
+    //lazabs.viewer.DrawGraph(rTree,true)
+    //Console.readLine
     pruneChildren(path.head)
+    adjustSubsumption(allNodes(rTree.getStart)._1,(allNodesInSubtrees.toSet -- openNodesInSubtrees.toSet))
     if (path.head.getCfgId == cfg.start.getId || path.head.getId == -1) {  // path.head is -1 when there are global variables in the original Scala file 
       queue :+= constructARTNode(cfg.start,BoolConst(true))
       makeRTree
@@ -519,11 +556,11 @@ object MakeRTreeInterpol {
         case Some(par) =>
           val newNode = constructARTNode(CFGVertex(path.head.getCfgId),exprSetToFormula(par._1.getAbstraction))
           queue :+= newNode
-          rTree.transitions += (par._1 -> (rTree.transitions.getOrElse(par._1, Set.empty) ++ Set(RAdjacent(par._2,newNode))))
-          nodeHash += (CFGVertex(newNode.getCfgId) -> (nodeHash.getOrElse(CFGVertex(newNode.getCfgId), List()) ::: List(newNode)))
+          rTree.transitions += (par._1 -> (rTree.transitions.getOrElse(par._1, Set.empty) + RAdjacent(par._2,newNode)))
+          nodeHash += (CFGVertex(newNode.getCfgId) -> (nodeHash.getOrElse(CFGVertex(newNode.getCfgId), Set()) + newNode))
           rTree.parent += (newNode -> (par._1,par._2))          
-          rTree.transitions += (par._1 -> (rTree.transitions.getOrElse(par._1, Set.empty) - (RAdjacent(par._2,path.head))))
-          nodeHash = nodeHashSubtract(nodeHash, collection.mutable.Map(CFGVertex(path.head.getCfgId) -> List(path.head)))
+          rTree.transitions = (rTree.transitions + (par._1 -> (rTree.transitions.getOrElse(par._1, Set.empty) - (RAdjacent(par._2,path.head))))).filterNot(_._2.size == 0)
+          nodeHash = (nodeHash + (CFGVertex(path.head.getCfgId) -> (nodeHash.getOrElse(CFGVertex(path.head.getCfgId),Set()) - path.head))).filterNot(_._2.size == 0)
           rTree.transitions = rTree.getTransitions.filterNot(_._1 == path.head)
           rTree.parent -= path.head
           queue = queue.filterNot(_ == path.head)

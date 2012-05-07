@@ -21,7 +21,7 @@ object DrawGraph {
   /**
    * showing a transition system
    */
-  def show(filename: String, transitions: String, ls: Map[String,String]): Unit = {
+  def show(filename: String, transitions: String, ls: Map[String,String]): Unit = { 
     val runTime = Runtime.getRuntime   
     val dotOutput = new java.io.FileWriter(filename + ".dot")
     dotOutput.write( "digraph lazabs {\n")
@@ -32,8 +32,9 @@ object DrawGraph {
         else (x + "[label=\"" + y + "\"];\n")}).reduceLeft[String](_+_) )               
     dotOutput.write( "}")
     dotOutput.close
+    //println("drawing: " + currentId)
     var proc = runTime.exec( "dot -Tpng " + filename + ".dot" + " -o " + filename + ".png" )
-    proc.waitFor
+    proc.waitFor    
     //proc = runTime.exec( "eog graph" + currentId + ".png")
     //proc.waitFor
     currentId = currentId + 1
@@ -117,7 +118,7 @@ object DrawGraph {
   def toDotRTree(t: RTree,absInFile: Boolean): Set[String] = {
     var result = Set[String]().empty
     for ((RNode(id, cfgId, abstraction),ends) <- t.transitions.toList) {
-      labels += (if(!absInFile) (id.toString -> (cfgId + " , " + abstraction2String(abstraction))) else {
+      labels += (if(!absInFile) (id.toString -> (id + " , " + cfgId + " " + abstraction2String(abstraction))) else {
         absInformation += (id -> (abstraction2String(abstraction) + "\n"))
         (id.toString -> id.toString)
       })
@@ -125,25 +126,31 @@ object DrawGraph {
         result += (if(!absInFile) (id.toString + "->" + a.to.getId.toString + "[label=\"" + lazabs.viewer.ScalaPrinter(a.label) + "\"];\n")
             else (id.toString + "->" + a.to.getId.toString) + "[label=\"" + (cfgId.toString + "->" + a.to.getCfgId.toString) + "\"];\n")
         if(t.blockedNodes.contains(a.to) && !absInFile)
-          labels += (a.to.getId.toString -> (a.to.cfgId + " , " + "BLK " + abstraction2String(a.to.getAbstraction)))
+          labels += (a.to.getId.toString -> (a.to.getId + " , " + a.to.getCfgId + ", BLK " + abstraction2String(a.to.getAbstraction)))
         if(t.blockedNodes.contains(a.to) && absInFile) {
-          labels += (a.to.getId.toString -> (a.to.cfgId + " , " + "BLK " + a.to.getId.toString))
+          labels += (a.to.getId.toString -> (a.to.getId + " , " + a.to.getCfgId + ", BLK " + a.to.getId.toString))
           absInformation += (a.to.getId -> ("BLK " + abstraction2String(a.to.getAbstraction) + "\n"))
         }
-        if(t.exploredNodes.contains(a.to) && !absInFile)
-          labels += (a.to.getId.toString -> (a.to.cfgId + " , " + "EXP " + abstraction2String(a.to.getAbstraction)))
-        if(t.exploredNodes.contains(a.to) && absInFile) {
-          labels += (a.to.getId.toString -> (a.to.cfgId + " , " + "EXP " + a.to.getId.toString))
+        if(t.subsumptionRelation.values.foldLeft(Set[RNode]())(_++_).contains(a.to) && !absInFile) 
+          labels += (a.to.getId.toString -> (a.to.getId + " , " + a.to.getCfgId + ", EXP " + abstraction2String(a.to.getAbstraction)))
+        if(t.subsumptionRelation.values.foldLeft(Set[RNode]())(_++_).contains(a.to) && absInFile) {
+          labels += (a.to.getId.toString -> (a.to.getId + " , " + a.to.getCfgId + ", EXP " + a.to.getId.toString))
           absInformation += (a.to.getId -> ("EXP " + abstraction2String(a.to.getAbstraction) + "\n"))
         }
         if(t.errorNodes.contains(a.to) && !absInFile)
-          labels += (a.to.getId.toString -> (a.to.cfgId + " , " + "ERR " + abstraction2String(a.to.getAbstraction)))
+          labels += (a.to.getId.toString -> (a.to.getId + " , " + a.to.getCfgId + ", ERR " + abstraction2String(a.to.getAbstraction)))
         if(t.errorNodes.contains(a.to) && absInFile) {
-          labels += (a.to.getId.toString -> (a.to.cfgId + " , " + "ERR " + a.to.getId.toString))
+          labels += (a.to.getId.toString -> (a.to.getId + " , " + a.to.getCfgId + ", ERR " + a.to.getId.toString))
           absInformation += (a.to.getId -> ("ERR " + abstraction2String(a.to.getAbstraction) + "\n"))
         }
-        if(!t.blockedNodes.contains(a.to) && !t.exploredNodes.contains(a.to) && !t.errorNodes.contains(a.to) && !absInFile)
-          labels += (a.to.getId.toString -> (a.to.cfgId + " , " + abstraction2String(a.to.getAbstraction)))
+        if(t.cacheSubsumedNodes.contains(a.to) && !absInFile)
+          labels += (a.to.getId.toString -> (a.to.getId + " , " + a.to.getCfgId + ", OLD " + abstraction2String(a.to.getAbstraction)))
+        if(t.cacheSubsumedNodes.contains(a.to) && absInFile) {
+          labels += (a.to.getId.toString -> (a.to.getId + " , " + a.to.getCfgId + ", OLD " + a.to.getId.toString))
+          absInformation += (a.to.getId -> ("OLD " + abstraction2String(a.to.getAbstraction) + "\n"))
+        }
+        if(!t.blockedNodes.contains(a.to) && !t.subsumptionRelation.values.foldLeft(Set[RNode]())(_++_).contains(a.to) && !t.errorNodes.contains(a.to) && !t.cacheSubsumedNodes.contains(a.to) && !absInFile)
+          labels += (a.to.getId.toString -> (a.to.getId + " , " + a.to.getCfgId + abstraction2String(a.to.getAbstraction)))
       })
     }
     result

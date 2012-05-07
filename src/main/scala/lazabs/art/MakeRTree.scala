@@ -78,7 +78,7 @@ object MakeRTree {
   /**
    * the hash of nodes
    */
-  var nodeHash = collection.mutable.Map[CFGVertex,List[RNode]]().empty  
+  var nodeHash = collection.mutable.Map[CFGVertex,Set[RNode]]().empty  
   /**
    * Making a reachability tree for a given control flow graph with DFS method
    */  
@@ -98,11 +98,13 @@ object MakeRTree {
       rTree.blockedNodes += node
       return node
     }
-    if (alreadyExplored(vertex, nodeHash, currentPredSet).isDefined) {
-      rTree.exploredNodes += node
-      return node
-    }
-    nodeHash += (vertex -> (nodeHash.getOrElse(vertex, List()) ::: List(node)))      
+    (alreadyExplored(vertex, nodeHash, currentPredSet) match {
+      case Some(weaker) => 
+        rTree.subsumptionRelation += (weaker -> (rTree.subsumptionRelation.getOrElse(weaker,Set()) + node))
+        return node
+      case None =>
+    })
+    nodeHash += (vertex -> (nodeHash.getOrElse(vertex, Set()) + node))      
     cfg.transitions.get(vertex) match {
       case Some(adjacencies) =>
         val adjs: List[CFGAdjacent] = if(shuffle) scala.util.Random.shuffle(adjacencies).toList else adjacencies.toList.sortWith((e1, e2) => (e1.to.getId < e2.to.getId))
@@ -149,20 +151,22 @@ object MakeRTree {
             if(adj.to.id == -1) childFormula match {  // assertions
               case BoolConst(false) =>
                 rTree.blockedNodes += childNode
-                nodeHash += (adj.to -> (nodeHash.getOrElse(adj.to, List()) ::: List(childNode)))
+                nodeHash += (adj.to -> (nodeHash.getOrElse(adj.to, Set()) + childNode))
               case _ =>
                 rTree.errorNodes += childNode
-            } else if(alreadyExplored(adj.to, nodeHash, childPredSet).isDefined)
-              rTree.exploredNodes += childNode
-              else if(childAbs.head) {  // the set is empty - the predicate false is true in this state
-              //nodeHash = nodeHashUnion(nodeHash, collection.mutable.Map(adj.to -> List(childPredSet)))
-              rTree.blockedNodes += childNode
-            } else {
-              nodeHash += (adj.to -> (nodeHash.getOrElse(adj.to, List()) ::: List(childNode)))
-              val dups = queue.filter(x => x._1 == adj.to)   // there is already a node for the same CFG vertex in the queue
-              if(dups.size != 0)
-                dups.foreach(d => if(subset(childAbs,dups.head._3)) queue = queue.filterNot(_ == d))              
-              queue :+= (adj.to,childNode,childAbs)
+            } else alreadyExplored(adj.to, nodeHash, childPredSet) match {
+              case Some(weaker) => rTree.subsumptionRelation += (weaker -> (rTree.subsumptionRelation.getOrElse(weaker,Set()) + childNode))
+              case None =>
+                if(childAbs.head) {  // the set is empty - the predicate false is true in this state
+                //nodeHash = nodeHashUnion(nodeHash, collection.mutable.Map(adj.to -> List(childPredSet)))
+                  rTree.blockedNodes += childNode
+                } else {
+                  nodeHash += (adj.to -> (nodeHash.getOrElse(adj.to, Set()) + childNode))
+                  val dups = queue.filter(x => x._1 == adj.to)   // there is already a node for the same CFG vertex in the queue
+                  if(dups.size != 0)
+                    dups.foreach(d => if(subset(childAbs,dups.head._3)) queue = queue.filterNot(_ == d))              
+                  queue :+= (adj.to,childNode,childAbs)
+                }
             }
             rTree.transitions += (next._2  -> (rTree.transitions.getOrElse(next._2, Set.empty) ++ Set(RAdjacent(adj.label,childNode))))
             rTree.parent += (childNode -> (next._2,adj.label))

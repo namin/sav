@@ -23,8 +23,9 @@ class RTree{
   @BeanProperty var transitions:collection.mutable.Map[RNode,Set[RAdjacent]] = collection.mutable.Map.empty
   @BeanProperty var parent: Map[RNode,(RNode,Label)] = Map.empty   
   @BeanProperty var blockedNodes:Set[RNode] = Set()
-  @BeanProperty var exploredNodes:Set[RNode] = Set()
-  @BeanProperty var errorNodes:Set[RNode] = Set()  
+  @BeanProperty var errorNodes:Set[RNode] = Set()
+  @BeanProperty var cacheSubsumedNodes:Set[RNode] = Set()
+  @BeanProperty var subsumptionRelation:Map[RNode,Set[RNode]] = Map.empty   // map from the weaker node to the set of stronger nodes it subsumes
 }
 
 object RTreeMethods {  
@@ -33,19 +34,13 @@ object RTreeMethods {
     timeFinish = 0
     started = false
     curNodeID = -1
+    exactAcceleration = 0
+    successfulOverAcceleration = 0
+    unsuccessfulOverAcceleration = 0
     MakeRTree.reset()
     MakeRTreeInterpol.reset()
   }
 
-  /**
-   * multi-map subtraction of two node hashes
-   */
-  def nodeHashSubtract(l: collection.mutable.Map[CFGVertex,List[RNode]], r: collection.mutable.Map[CFGVertex,List[RNode]]): collection.mutable.Map[CFGVertex,List[RNode]] = {
-    var res = collection.mutable.Map[CFGVertex,List[RNode]]().empty
-    val keys = l.keySet
-    keys.foreach( k => res += (k -> (l.getOrElse(k,List[RNode]()) diff r.getOrElse(k,List[RNode]())).distinct))
-    res.filterNot(_._2.size == 0)
-  }
   /**
    * used for calculating the total time of computation
    */
@@ -96,7 +91,7 @@ object RTreeMethods {
    * @param abs the new abstraction
    * @return the node that subsumes abs (if any) 
    */
-  def alreadyExplored(node: CFGVertex, nodeHash: collection.mutable.Map[CFGVertex,List[RNode]], abs: Set[Expression]): Option[RNode] = nodeHash.get(node) match {
+  def alreadyExplored(node: CFGVertex, nodeHash: collection.mutable.Map[CFGVertex,Set[RNode]], abs: Set[Expression]): Option[RNode] = nodeHash.get(node) match {
     case Some(as) =>
       val syntatic = as.find(a => a.getAbstraction.subsetOf(abs))
       if(syntatic.isDefined) syntatic else {
@@ -113,7 +108,7 @@ object RTreeMethods {
   /**
    * inputs a vertex and prints its invariant
    */
-  def printInvariant(vertex: CFGVertex, nodeHash: collection.mutable.Map[CFGVertex,List[RNode]]) = nodeHash.get(vertex) match {
+  def printInvariant(vertex: CFGVertex, nodeHash: collection.mutable.Map[CFGVertex,Set[RNode]]) = nodeHash.get(vertex) match {
     case Some(fs) => println("The loop invariant " + lazabs.viewer.ScalaPrinter(fs.map(x => exprSetToFormula(x.getAbstraction)).reduceLeft(Disjunction(_,_))))
     case None => 
   }  
@@ -139,7 +134,7 @@ object RTreeMethods {
     //println("Number of states in reachability tree: " + (curNodeID + 1))
   }
   
-  def report(loops: List[CFGVertex], nodeHash: collection.mutable.Map[CFGVertex,List[RNode]]) {
+  def report(loops: List[CFGVertex], nodeHash: collection.mutable.Map[CFGVertex,Set[RNode]]) {
     loops.foreach(printInvariant(_,nodeHash))
     report
   }
@@ -172,7 +167,7 @@ object RTreeMethods {
   def getunsuccessfulOverAcceleration = unsuccessfulOverAcceleration  
   
   /**
-   * finds a path to root
+   * finds the path to root
    */
   def pathToRoot(node: RNode, parent: Map[RNode,(RNode,Label)]): List[(RNode,Label)] = {
     var path: List[(RNode,Label)] = List()
@@ -185,7 +180,6 @@ object RTreeMethods {
     recur(node)
     path
   }
-  
   
   /**
    * determines if a counter-example is spurious
