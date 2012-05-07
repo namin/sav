@@ -215,7 +215,7 @@ trait Sav {
     protected def init() = {
       classContract match {
         case None => ()
-        case Some(c) => collectFields("this.", c).foreach(variables += _)
+        case Some(c) => collectFields("this__", c).foreach(variables += _)
       }
     }
     protected def collectFields(prefix: String, c: ClassContract): Set[String] = {
@@ -224,7 +224,7 @@ trait Sav {
       for ((vType, vName) <- c.vals) {
         verifiedClasses.get(vType) match {
           case None => ()
-          case Some(vClass) => res = res union collectFields(prefix + vName + ".", vClass)
+          case Some(vClass) => res = res union collectFields(prefix + vName + "__", vClass)
         }
       }
       res
@@ -234,7 +234,7 @@ trait Sav {
         case Apply(s @ Select(qualifier, name), List()) =>
           toFieldSelect(qualifier) match {
             case None => None
-            case Some(prefix) => Some(prefix + "." + name.decode)
+            case Some(prefix) => Some(prefix + "__" + name.decode)
           }
         case t @ This(tpt) if (t.symbol.tpe.typeSymbol.name.decode == classContract.get.name) =>
           Some("this")
@@ -454,12 +454,12 @@ trait Sav {
         case Some(c) => toFieldSelect(qualifier) match {
           case None => println("  verified method call on non-field qualifier"); ok = false
           case Some(qs) =>
-            fieldMap = collectFields("this.", c).map(s => (s -> Variable(qs + s.substring("this".length)))).toMap
+            fieldMap = collectFields("this__", c).map(s => (s -> Variable(qs + s.substring("this".length)))).toMap
             for ((from, to) <- aliases) {
-              val fromName = fun.decode + ".$." + from
+              val fromName = fun.decode + "___" + from
               variables += fromName
               todo.append(() => {
-                addEdge(Havoc(Variable(fun.decode + ".$." + from)))
+                addEdge(Havoc(Variable(fun.decode + "___" + from)))
                 addAssign(fromName, Variable(qs + to.substring("this".length)))
               })
               aliasMap += (from -> Variable(fromName))
@@ -484,7 +484,7 @@ trait Sav {
     private def havocRefs(t: Tree) {
       toFieldSelect(t) match {
         case None => t.children.foreach(havocRefs)
-        case Some(field) => variables.foreach(v => if (v.startsWith(field + ".")) {
+        case Some(field) => variables.foreach(v => if (v.startsWith(field + "__")) {
           if (verbose) println("  havoc ref " + v)
           addEdge(Havoc(Variable(v)))
         })
@@ -617,7 +617,7 @@ trait Sav {
           toFieldSelect(qualifier) match {
             case None => exprIfOk(rhs); ()
             case Some(qualifier) =>
-              val f = qualifier + "." + fun.decode
+              val f = qualifier + "__" + fun.decode
               val v = f.substring(0, f.length - 2)
               if (variables.contains(v)) {
                  calcAssign(t, v, rhs)
