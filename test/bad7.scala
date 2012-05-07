@@ -1,7 +1,7 @@
 import net.namin.sav.annotation.verify
 import net.namin.sav.lib._
 
-object ok7 {
+object bad7 {
   @verify
   class BankAccount {
     var balance = 0
