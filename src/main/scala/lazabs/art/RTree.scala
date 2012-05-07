@@ -136,7 +136,7 @@ object RTreeMethods {
   
   def report(loops: List[CFGVertex], nodeHash: collection.mutable.Map[CFGVertex,Set[RNode]]) {
     loops.foreach(printInvariant(_,nodeHash))
-    report
+    //report
   }
   
   /**
