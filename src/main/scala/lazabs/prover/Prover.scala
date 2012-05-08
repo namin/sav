@@ -32,6 +32,7 @@ object Prover {
   def setProver(p: TheoremProver) {
     prover = p
   }
+  def getProver = prover
   
 /*  def standardName(sx: Expression): String = {
     var counter = 0

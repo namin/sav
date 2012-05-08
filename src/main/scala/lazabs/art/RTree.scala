@@ -109,7 +109,7 @@ object RTreeMethods {
    * inputs a vertex and prints its invariant
    */
   def printInvariant(vertex: CFGVertex, nodeHash: collection.mutable.Map[CFGVertex,Set[RNode]]) = nodeHash.get(vertex) match {
-    case Some(fs) => println("The loop invariant " + lazabs.viewer.ScalaPrinter(fs.map(x => exprSetToFormula(x.getAbstraction)).reduceLeft(Disjunction(_,_))))
+    case Some(fs) => println("loop invariant: " + lazabs.viewer.ScalaPrinter(fs.map(x => exprSetToFormula(x.getAbstraction)).reduceLeft(Disjunction(_,_))))
     case None => 
   }  
   
@@ -136,6 +136,7 @@ object RTreeMethods {
   
   def report(loops: List[CFGVertex], nodeHash: collection.mutable.Map[CFGVertex,Set[RNode]]) {
     loops.foreach(printInvariant(_,nodeHash))
+    println("")
     //report
   }
   
@@ -214,6 +215,10 @@ object RTreeMethods {
         isSatisfiable(Not(condition)) match {
           case Some(false) => return true   // the state cannot reach error
           case _ =>
+        }
+        if (lazabs.prover.Prover.getProver == lazabs.prover.TheoremProver.Z3) {
+          println("Model for counterexample:")
+          println(lazabs.prover.Z3Wrapper.getModel(Not(condition)))
         }
         return false
     }

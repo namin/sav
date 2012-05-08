@@ -83,15 +83,55 @@ object Z3Wrapper {
     val z3 = createContext
     val formula = mkZ3Expr(e, z3)
     z3.assertCnstr(formula)
-    var answer: Option[Boolean] = z3.check
-    //var (answer,model) = z3.checkAndGetModel
+    val answer: Option[Boolean] = z3.check
     answer match {
       case None => println("Failure in theorem prover: " + z3.getSearchFailure.message)
-      //case Some(true) => println("The model: " + model) 
       case _ => 
     }
     z3.delete
     Prover.increaseTheoremProverConsultation 
     answer
+  }
+
+  private val XName = """x([0-9]+)(.+)""".r
+  private val VName = """v([0-9]+)""".r
+  def getModel(e: Expression): String = {
+    val z3 = createContext
+    val formula = mkZ3Expr(e, z3)
+    z3.assertCnstr(formula)
+    val (answer, model) = z3.checkAndGetModel()
+    assert (answer == Some(true))
+    val initModelMap = model.getModelConstantInterpretations.toList.map({ case (defun, value) =>
+      defun.getName.toString match {
+        case XName(n, name) => (name, n.toInt, value.toString)
+        case name => (name, 0, value.toString)
+      }
+    }).sortBy({case (name, n, v) => (name, -n)})
+    var prev: (String, String) = null
+    val filteredModelMap =
+      for ((name, n, v) <- initModelMap;
+           cur = (name, v);
+           if prev != cur || n == 0;
+           if (name match {
+             case VName(_) => false
+             case _ => true
+           }))
+        yield { prev = cur; (name, n, v) }
+    val orderedModelMap = filteredModelMap.sortBy({case (name, n, v) => (-n, name)})
+    var prevN: Int = 0
+    var counter = 0
+    val printedModel = orderedModelMap.map({case (name, n, v) =>
+      var res = ""
+      if (prevN != n) {
+        counter += 1
+        if (n == 0) res += "\n== final values ==\n"
+        else res += "\n== step " + counter + " ==\n"
+        prevN = n
+      }
+      res += name + " <- " + v
+      res
+    }).mkString("\n")
+    z3.delete
+    printedModel + "\n"
   }
 }

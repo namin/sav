@@ -479,8 +479,10 @@ object MakeRTreeInterpol {
         }
         println("The program has a bug in the following path: " + errorPath(rTree.errorNodes.head).map(x => lazabs.nts.NtsWrapper.stateNameMap.getOrElse(x.getCfgId,"")))
       }
-      else
-        println("The program has a bug")
+      else {
+        val Some((papa, Assume(e))) = rTree.getParent.get(rTree.errorNodes.head)
+        println("The program has a bug in asserting: " + lazabs.viewer.ScalaPrinter(shortCircuit(Not(e))))
+      }
     }
   }
   
