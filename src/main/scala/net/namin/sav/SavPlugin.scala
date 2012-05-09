@@ -346,6 +346,7 @@ trait Sav {
 
   class DefCFGBuilder extends VerifyDefTraverser {
     private var sufficient = true
+    private var hasReturn = false
     private val cfg = new CFG()
     override protected val variables = cfg.variables
     private var labels = Map[Name,(Vertex,Vertex)]()
@@ -362,25 +363,31 @@ trait Sav {
     }
 
     private def addEdge(label: CFGLabel) = {
-      val (from, to) = newNext     
-      cfg += (from, label, to)
+      if (next != null) {
+        val (from, to) = newNext
+        cfg += (from, label, to)
+      }
     }
 
     private def addAssert(e: Expression) = {
-      val ((from, to), ce) = if (lastAssertTo == next) {
-      	val pe = cfg.asserts(lastAssertFrom)
-      	val ce = simplify(Conjunction(pe, e))
-      	((lastAssertFrom, lastAssertTo), ce)
+      if (next == null) {
+        println("Ignoring unreachable assert:" + ScalaPrinter(e))
       } else {
-      	(newNext, e)
+        val ((from, to), ce) = if (lastAssertTo == next) {
+          val pe = cfg.asserts(lastAssertFrom)
+          val ce = simplify(Conjunction(pe, e))
+          ((lastAssertFrom, lastAssertTo), ce)
+        } else {
+      	  (newNext, e)
+        }
+
+        cfg.asserts += (from -> ce)
+        cfg += (from, Assume(ce), to)
+        cfg += (from, Assume(simplify(Not(ce))), cfg.error)
+
+        lastAssertFrom = from
+        lastAssertTo = to
       }
-
-      cfg.asserts += (from -> ce)
-      cfg += (from, Assume(ce), to)
-      cfg += (from, Assume(simplify(Not(ce))), cfg.error)
-
-      lastAssertFrom = from
-      lastAssertTo = to
     }
 
     private def addAssign(v: String, rhs: Expression) = {
@@ -403,8 +410,10 @@ trait Sav {
     }
 
     private def jumpTo(v: Vertex) = {
-      cfg += (next, Assume(BoolConst(true)), v)
-      next = v
+      if (next != null && v != null) {
+        cfg += (next, Assume(BoolConst(true)), v)
+        next = v
+      }
     }
 
     private def addVerifiedCall(t: Tree, result: Option[Variable], qualifier: Tree, fun: Name, args: List[Tree]) {
@@ -559,6 +568,10 @@ trait Sav {
           addEdge(Assume(expr(arg)))
         case Apply(Select(_, fun), List(arg)) if fun.decode == "postcondition" =>
           addAssert(expr(arg))
+          if (hasReturn) {
+            println("Cannot use postcondition with explicit returns")
+            ok = false
+          }
         case Apply(Select(_, fun), List(arg)) if fun.decode == "assume" =>
           addEdge(Assume(expr(arg)))
         case Apply(Select(_, fun), List(arg)) if fun.decode == "assert" =>
@@ -579,9 +592,13 @@ trait Sav {
           jumpTo(labels(name)._1)
           next = labels(name)._2
         case Literal(Constant(())) => ()
+        case Return(e) =>
+          exprIfOk(e)
+          next = null
+          hasReturn = true
         case _ =>
-          exprIfOk(t); ()
           //println("  missing case: " + t.getClass + " " + t)
+          exprIfOk(t); ()
           //ok = false
       }
     }
