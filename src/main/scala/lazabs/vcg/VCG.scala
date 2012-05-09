@@ -132,7 +132,7 @@ object VCG {
     
     def addEdge(edge: (Node, Expression, Node), f: Expression) = {
       val (from, e, to) = edge
-      Manip.simplify(Conjunction(from.e, Conjunction(e, Conjunction(to.e, f))))
+      Manip.simplify(Conjunction(from.e, Conjunction(e, f)))
     }
     
     def checkChildren(v: Node, m: Map[Node, Expression]) {
