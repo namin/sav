@@ -115,14 +115,19 @@ object VCG {
     vcs(mergedGraph, cfg.start.id, asserts)
   }
   
-  def vcs(graph: Graph, start: Int, asserts: Map[Int, Expression]): Set[Expression] = {
+  def vcs(graph: Graph, start: Int, asserts: Map[Int, Expression], justStart: Boolean = true): Set[Expression] = {
+    var hasBackEdges = false
+    var seen = Set[Node]()
+
     var result = Set[Expression]()
     
     val parents = 
       (for ((from, s) <- graph.transitions.toSet;
        (to, e) <- s) yield (to -> (from, e))).groupBy(_._1).mapValues(_.map(_._2))
-    
-    val initVertices = asserts.keySet.union(Set(start))
+
+    var visitedAsserts = Set[Int]()
+
+    val initVertices = if (justStart) Set(start) else asserts.keySet.union(Set(start))
     val init = graph.nodes.filter(node => node.vertices.exists(initVertices.contains(_)))
     var processed = Set[Node]()
     var ready = List[Node]()
@@ -138,13 +143,24 @@ object VCG {
     def checkChildren(v: Node, m: Map[Node, Expression]) {
       for ((to, e) <- graph.transitions(v)) {
         basicPaths += ((v, to) -> m.mapValues(addEdge((v, e, to), _)))
-        
-        if (notReady.contains(to) && parents(to).map(_._1).diff(processed).isEmpty) {
-          notReady -= to
-          ready = to :: ready
+
+        val toAssert = asserts.get(to.from)
+
+        if (!justStart || toAssert == None) {
+          if (notReady.contains(to) && parents(to).map(_._1).diff(processed).isEmpty) {
+            notReady -= to
+            ready = to :: ready
+          }
+        } else {
+          if (toAssert == None) {
+            seen += to
+          } else {
+            hasBackEdges ||= !parents(to).map(_._1).diff(processed).isEmpty
+          }
         }
-        
-        asserts.get(to.from).foreach({assertFormula =>
+
+        toAssert.foreach({assertFormula =>
+          visitedAsserts += to.from
           for ((root, formula) <- basicPaths(v, to)) {
             result += Implication(formula, assertFormula)
           }
@@ -162,7 +178,7 @@ object VCG {
       checkChildren(v, m)
     }
 
-    while (!ready.isEmpty) {
+    while (!ready.isEmpty && !hasBackEdges && !(justStart && visitedAsserts.nonEmpty)) {
       // take any ready node
       val v = ready.head
       ready = ready.tail
@@ -187,8 +203,27 @@ object VCG {
       // check children
       checkChildren(v, m)
     }
-    
-    if (notReady.isEmpty) result
-    else null // The CFG is not sufficiently annotated.
+
+    if (justStart) {
+      if (hasBackEdges || (notReady.intersect(seen)).nonEmpty) vcs(graph, start, asserts, justStart = false)
+      else {
+        val errorVertexId = -1
+        val todoAsserts = asserts -- visitedAsserts
+        if (todoAsserts.isEmpty) result
+        else {
+          val new_transitions = for ((from, s) <- graph.transitions) yield { (from,
+            if (visitedAsserts.contains(from.from)) s.filter({case (to, e) => !to.vertices.contains(errorVertexId)})
+            else s)
+          }
+          val graphBis = new Graph(graph.nodes, new_transitions)
+          val rest = vcs(graphBis.mergeAll(todoAsserts.keySet), start, todoAsserts, justStart = true)
+          if (rest == null) null
+          else result union rest
+        }
+      }
+    } else {
+      if (notReady.isEmpty) result
+      else null // The CFG is not sufficiently annotated.
+    }
   }
 }
