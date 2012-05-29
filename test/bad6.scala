@@ -7,8 +7,8 @@ object ok6 {
   def even(n: Int): Int = {
     precondition(n >= 0)
     var r = 0
-    if (n == 0) r = 0
-    else if (n == 1) r = 1
+    if (n == 0) r = 1
+    else if (n == 1) r = 0
     else if (n == 2) r = 2 // bad ...
     else r = odd(n-1)
     postcondition(r == 0 || r == 1)
@@ -19,8 +19,8 @@ object ok6 {
   def odd(n: Int): Int = {
     precondition(n >= 0)
     var r = 0
-    if (n == 0) r = 1
-    else if (n == 1) r = 0
+    if (n == 0) r = 0
+    else if (n == 1) r = 1
     else r = even(n-1)
     postcondition(r == 0 || r == 1)
     r
