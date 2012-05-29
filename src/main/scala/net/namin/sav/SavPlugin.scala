@@ -381,6 +381,7 @@ trait Sav {
     private var sufficient = true
     private var hasReturn = false
     private var labels = Map[Name,(CFGVertex,CFGVertex)]()
+    private var loops = List[CFGVertex]()
     private val errorVertex = CFGVertex(-1)
     private var next = newVertex
     private var lastAssertFrom = errorVertex
@@ -524,14 +525,13 @@ trait Sav {
         val backward = MakeCFG.makeParentMap(forward)
         val vars = variables.map(Variable(_)).toSet
         val varMap = vertices.map(v => v -> vars).toMap
-        val loops = labels.values.toList.map(_._1)
         val predMap = vertices.map(v => v -> (
           if (v == errorVertex) List((BoolConst(false),List()), (Variable("sc_LBE"),List()))
           else List((BoolConst(false),List()))
         )).toMap
 
         val cfg = CFG(start, forward, backward, predMap, varMap, Map.empty, Map.empty, None, asserts)
-        Some((cfg, loops))
+        Some((cfg, loops.reverse))
       } else None
     }
  
@@ -578,6 +578,7 @@ trait Sav {
           }
         case LabelDef(name, List(), rhs @ If(cond, thenp, Literal(Constant(())))) =>
           addWhileLabel(name)
+          loops = labels(name)._1 :: loops
           val conde = expr(cond)
           addEdge(Assume(conde))
           traverse(thenp)
@@ -586,6 +587,7 @@ trait Sav {
         case LabelDef(name, List(), rhs @ Block(stats, If(cond, thenp, Literal(Constant(()))))) =>
           addDoWhileLabel(name)
           traverseTrees(stats)
+          loops = next :: loops
           val from = next
           val conde = expr(cond)
           addEdge(Assume(conde))
