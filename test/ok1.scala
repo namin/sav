@@ -3,7 +3,7 @@ import net.namin.sav.lib._
 
 object ok1 {
   val random = new scala.util.Random()
-  def havoc = random.nextInt
+  def havoc = random.nextInt - random.nextInt
   @verify
   def test(b: Int) = {
     precondition(b >= 0)

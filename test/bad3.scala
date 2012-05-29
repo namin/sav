@@ -1,6 +1,6 @@
 import net.namin.sav.annotation.verify
 
-object ok3 {
+object bad3 {
   @verify
   def test(length: Int) {
     assume(length > 0)
