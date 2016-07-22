@@ -2,6 +2,9 @@ Course Project in Synthesis, Analysis and Verification in Scala
 ===============================================================
 by Nada Amin
 
+* Presentation Slides ([PDF](http://lampwww.epfl.ch/~amin/sav/sav-project-presentation.pdf))
+* Report ([PDF](http://lampwww.epfl.ch/~amin/sav/sav-project-report.pdf))
+
 This project develops the [`sav`][SavPlugin] Scala compiler plugin,
 which integrates the Scala compiler with the verifier built during the
 [EPFL SAV 2012 course][sav12].
